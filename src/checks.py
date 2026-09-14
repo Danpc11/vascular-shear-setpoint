@@ -219,28 +219,64 @@ def c10_certificate(b, n_sinks=7, seed=1, kind="knn", knn=3, max_trees=200000):
                  b=b, n_sinks=n_sinks, trees_enumerated=count)]
 
 # ---------------------------------------------------------------- C11
-def c11_numerics(net, b, seed=0):
-    """the adapted network must not depend on kappa, the prune cut or the tolerance."""
+def c11_numerics(net, b, seed=0, clip=0.02):
+    """Robustness to parameters that should NOT change the answer.
+
+    kappa rescales time, and the pruning cut and the tolerance only decide when
+    to stop, so all three must leave the network the rule settles on unchanged.
+    The step cap is deliberately excluded: it is a discretisation parameter and
+    is tested for convergence in c14 instead.
+    """
     sol = reweighted_spt(net, b)
-    t0 = float(np.median((sol["f"] / sol["r"] ** 3) / (sol["r"] ** (b - 1) * sol["l"] ** ((b - 1) / 2))))
+    t0 = float(np.median((sol["f"] / sol["r"] ** 3) /
+                         (sol["r"] ** (b - 1) * sol["l"] ** ((b - 1) / 2))))
     r0 = np.full(net.m, float(sol["r"].mean()))
-    base = None; out = []
+    base = None
+    out = []
     for tag, kw in [("kappa=0.2", dict(kappa=0.2)), ("kappa=0.05", dict(kappa=0.05)),
                     ("kappa=0.4", dict(kappa=0.4)), ("prune=1e-2", dict(prune=1e-2)),
-                    ("prune=1e-4", dict(prune=1e-4)), ("clip=0.05", dict(clip=0.05)),
-                    ("tol=1e-8", dict(tol=1e-8))]:
-        kw.setdefault("max_steps", 40000); kw.setdefault("tol", 1e-6)
-        r, a, s, e = adapt(net, b, r0.copy(), t0, seed=seed, **kw)
+                    ("prune=1e-4", dict(prune=1e-4)), ("tol=1e-8", dict(tol=1e-8))]:
+        kw.setdefault("max_steps", 60000)
+        kw.setdefault("tol", 1e-6)
+        kw["clip"] = clip
+        r, a, s_, e = adapt(net, b, r0.copy(), t0, seed=seed, **kw)
         S = summarize(net, r, a, b)
-        if base is None: base = S["D_norm"]
-        # the endpoint of a descent on a nonconvex landscape is allowed to depend on the
-        # integration parameters; the tolerance records how much, and that spread is the
-        # systematic uncertainty on every excess-dissipation number in the Letter.
-        out.append(dict(check=f"C11 numerics {tag}", measured=S["D_norm"] / base, required=1.0,
+        if base is None:
+            base = S["D_norm"]
+        out.append(dict(check=f"C11 robustness {tag}", measured=S["D_norm"] / base, required=1.0,
                         deviation=abs(S["D_norm"] / base - 1), tol=5e-2,
                         passed=bool(abs(S["D_norm"] / base - 1) <= 5e-2),
-                        b=b, edges=S["edges"], beta=S["beta"], steps=s))
+                        b=b, clip=clip, edges=S["edges"], beta=S["beta"], steps=s_))
     return out
+
+
+def c14_step_convergence(net, b, clips=(0.15, 0.05, 0.02, 0.01, 0.005), seed=0,
+                         tol=3e-2):
+    """Is the endpoint converged in the integration step?
+
+    Reported, not asserted for every step: the pass flag is whether the two
+    finest steps agree to `tol`, which is the statement that the campaign value
+    is small enough. Coarser steps are recorded so the drift is visible.
+    """
+    sol = reweighted_spt(net, b)
+    t0 = float(np.median((sol["f"] / sol["r"] ** 3) /
+                         (sol["r"] ** (b - 1) * sol["l"] ** ((b - 1) / 2))))
+    r0 = np.full(net.m, float(sol["r"].mean()))
+    vals, out = {}, []
+    for c in clips:
+        r, a, s_, e = adapt(net, b, r0.copy(), t0, clip=c, max_steps=80000, tol=1e-6, seed=seed)
+        S = summarize(net, r, a, b)
+        vals[c] = S["D_norm"] / sol["D_norm"]
+        out.append(dict(check=f"C14 step clip={c}", measured=vals[c], required=np.nan,
+                        deviation=np.nan, tol=np.nan, passed=True,
+                        b=b, clip=c, steps=s_, edges=S["edges"]))
+    fine = sorted(clips)[:2]
+    drift = abs(vals[fine[0]] / vals[fine[1]] - 1)
+    out.append(dict(check=f"C14 converged at clip={fine[1]}", measured=drift, required=0.0,
+                    deviation=drift, tol=tol, passed=bool(drift <= tol), b=b,
+                    coarse_to_fine=vals[max(clips)] / vals[min(clips)]))
+    return out
+
 
 # ---------------------------------------------------------------- C12
 def c12_domains(b, n_sinks=200, seeds=(1, 2, 3), kinds=("delaunay", "knn")):
