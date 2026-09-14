@@ -34,20 +34,38 @@ def _ok(name, measured, required, tol, rel=True, extra=None):
     return r
 
 # ---------------------------------------------------------------- C1
-def c1_gradient(net, b, eps=6e-6, n_edges=25, seed=0):
-    """central differences of D against -Delta p^2."""
+def c1_gradient(net, b, h=1e-3, n_edges=25, seed=0, tol=1e-5):
+    """Central differences of D against -Delta p^2, Richardson-extrapolated.
+
+    A plain central difference is limited by cancellation: the per-edge
+    sensitivity is a small fraction of D, so the usable step grows with the
+    domain. Richardson extrapolation of two central differences,
+    (4 cd(h/2) - cd(h))/3, has O(h^4) truncation error and stays below 1e-5 from
+    150 to 900 sinks at h = 1e-3, which a single difference at a fixed step does
+    not. This check tests the check as much as the gradient.
+    """
     rng = np.random.default_rng(seed)
     tree = reweighted_spt(net, b, seeds=2, iters=8)["edges"]
-    w = np.zeros(net.m); ks = np.array([net.idx[e] for e in tree])
+    w = np.zeros(net.m)
+    ks = np.array([net.idx[e] for e in tree])
     w[ks] = 1.0 + 0.5 * rng.random(ks.size)
-    nodes = np.ones(net.n, bool); mu = net.unit_demand(nodes)
-    f, phi = net.flows(w, mu, nodes); ana = -(net.B.T @ phi) ** 2
+    nodes = np.ones(net.n, bool)
+    mu = net.unit_demand(nodes)
+    f, phi = net.flows(w, mu, nodes)
+    ana = -(net.B.T @ phi) ** 2
+
+    def cd(k, step):
+        wp = w.copy(); wp[k] *= (1 + step)
+        wm = w.copy(); wm[k] *= (1 - step)
+        return (net.dissipation(wp, mu, nodes)[0]
+                - net.dissipation(wm, mu, nodes)[0]) / (2 * step * w[k])
+
     worst = 0.0
     for k in rng.choice(ks, size=min(n_edges, ks.size), replace=False):
-        wp = w.copy(); wp[k] *= (1 + eps); wm = w.copy(); wm[k] *= (1 - eps)
-        num = (net.dissipation(wp, mu, nodes)[0] - net.dissipation(wm, mu, nodes)[0]) / (2 * eps * w[k])
-        worst = max(worst, abs(num - ana[k]) / abs(ana[k]))
-    return _ok("C1 dissipation gradient", worst, 0.0, 1e-5, rel=False)
+        rich = (4 * cd(k, h / 2) - cd(k, h)) / 3
+        worst = max(worst, abs(rich - ana[k]) / abs(ana[k]))
+    return _ok("C1 dissipation gradient", worst, 0.0, tol, rel=False)
+
 
 # ---------------------------------------------------------------- C2
 def c2_allocation(net, b, seed=0, trials=200):
