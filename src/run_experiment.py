@@ -26,6 +26,8 @@ p.add_argument("--domain-seed", type=int, default=3)
 p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
 p.add_argument("--seed", type=int, default=0, help="run seed (starts, fluct MC)")
 p.add_argument("--kappa", type=float, default=0.2)
+p.add_argument("--clip", type=float, default=0.02,
+               help="cap on |d ln r| per Euler step; 0.15 is NOT converged, see run_checks C11")
 p.add_argument("--max-steps", type=int, default=20000)
 p.add_argument("--tol", type=float, default=1e-6)
 p.add_argument("--prune", type=float, default=1e-3)
@@ -52,7 +54,7 @@ def tau0_ref():
 
 def emit(row, r=None, active=None):
     row.update(exp=a.exp, b=a.b, n_sinks=a.n_sinks, domain_seed=a.domain_seed, kind=a.kind,
-               seed=a.seed, kappa=a.kappa, tol=a.tol, prune=a.prune, seconds=round(time.time() - t0, 1))
+               seed=a.seed, kappa=a.kappa, clip=a.clip, tol=a.tol, prune=a.prune, seconds=round(time.time() - t0, 1))
     f = os.path.join(a.out, f"{a.exp}.tsv")
     pd.DataFrame([row]).to_csv(f, sep="\t", index=False, mode="a", header=not os.path.exists(f))
     if r is not None:
@@ -73,7 +75,7 @@ elif a.exp in ("starts", "dense", "fluct"):
     r0 = rbar * np.exp(0.5 * rng.standard_normal(net.m)) if a.exp == "starts" else np.full(net.m, rbar)
     hist = []
     r, active, steps, err = adapt(net, a.b, r0, ref["tau0"], sigma=a.sigma if a.exp == "fluct" else 0.0,
-                                  kappa=a.kappa, max_steps=a.max_steps, tol=a.tol, prune=a.prune,
+                                  kappa=a.kappa, clip=a.clip, max_steps=a.max_steps, tol=a.tol, prune=a.prune,
                                   mc_samples=a.mc_samples, seed=a.seed, history=hist)
     S = summarize(net, r, active, a.b)
     S.update(steps=steps, final_err=err, converged=bool(err < a.tol), sigma=a.sigma, mc_samples=a.mc_samples,
@@ -82,7 +84,7 @@ elif a.exp in ("starts", "dense", "fluct"):
     emit(S, r, active)
 
 elif a.exp == "growth":
-    ref = tau0_ref(); kw = dict(kappa=a.kappa, max_steps=a.max_steps, tol=a.tol, prune=a.prune)
+    ref = tau0_ref(); kw = dict(kappa=a.kappa, clip=a.clip, max_steps=a.max_steps, tol=a.tol, prune=a.prune)
     fn = grow_peripheral if a.growth_mode == "peripheral" else grow_isotropic
     r, active = fn(net, a.b, ref["tau0"], a.stages, r_seed=0.05, **kw)
     S = summarize(net, r, active, a.b); S.update(stages=a.stages, growth_mode=a.growth_mode,
