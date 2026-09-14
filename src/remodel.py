@@ -52,12 +52,18 @@ def _cov_demand(net, nodes, sigma):
 
 
 def adapt(net, b, r0, tau0, nodes=None, sigma=0.0, kappa=0.2, max_steps=5000,
-          tol=1e-6, prune=1e-3, clip=0.15, mc_samples=0, seed=0, history=None):
+          tol=1e-6, prune=1e-3, clip=0.02, mc_samples=0, seed=0, history=None):
     """Integrate the rule by explicit Euler in ln r.
 
     A vessel whose radius falls below `prune` times the largest is removed;
     removal is irreversible, which is the discrete step the Lyapunov identity
     does not cover. Convergence means max_e |z_e - 1| < tol over active edges.
+
+    `clip` bounds |d ln r| per step. It is a discretisation parameter, not a
+    robustness knob: the network the rule settles on depends on it systematically
+    until the step is small enough, and coarser steps give worse networks. The
+    default 0.02 is where checks.c14_step_convergence finds the remaining drift
+    comparable to the spread between basins; 0.15 is not converged.
 
     mc_samples > 0 replaces the dense pseudo-inverse by Monte Carlo over demand
     patterns with sparse solves; use it above roughly 1000 nodes.
