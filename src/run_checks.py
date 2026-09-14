@@ -27,6 +27,7 @@ DESC = {
  "C11": "robustness to kappa, prune cut, clip and tolerance",
  "C12": "robustness to domain seed and candidate-graph type",
  "C13": "convergence of the fluctuating-demand runs",
+ "C14": "the endpoint is converged in the integration step",
 }
 
 p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -71,6 +72,7 @@ for b in a.b:
     if "C11" in want: add(K.c11_numerics(net, b))
     if "C12" in want: add(K.c12_domains(b, a.c12_sinks))
     if "C13" in want: add(K.c13_fluctuation(net, b))
+    if "C14" in want: add(K.c14_step_convergence(net, b))
 
 df = pd.DataFrame(rows)
 df["n_sinks"] = a.n_sinks; df["domain_seed"] = a.domain_seed; df["kind"] = a.kind
