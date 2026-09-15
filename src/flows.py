@@ -82,6 +82,32 @@ class Net:
                     f=fl[keep], l=l[keep], w=w[keep], r=(w[keep] * l[keep]) ** 0.25,
                     r_full=r_full, active=act, parent=parent)
 
+def allocate_under_load(net, tree, b, sigma, C0=1.0):
+    """Optimal allocation on a fixed tree under fluctuating sink demands.
+
+    On a tree the flow through an edge is the sum of the demands downstream of
+    it, so with independent sink currents of mean 1 and variance sigma^2 a
+    downstream count k gives <f_e> = k and <f_e^2> = k^2 + k sigma^2 exactly, with
+    no linear algebra. Minimizing <D> = sum_e <f_e^2>/w_e at fixed budget then
+    gives w_e ∝ (<f_e^2>/a_e)^{1/(alpha+1)}.
+
+    This is the best allocation on that topology under that loading. It is not
+    the best tree under that loading: the topology is inherited from the
+    mean-demand search and is not re-optimised here.
+    """
+    alpha = net.alpha(b)
+    f, parent = net.tree_flows(tree)
+    ks = np.array([net.idx[e] for e in tree])
+    k = np.array([f[e] for e in tree])            # downstream demand count
+    f2 = k ** 2 + k * sigma ** 2
+    a = net.a_coef(b)[ks]
+    w = np.where(f2 > 0, (f2 / a) ** (1 / (alpha + 1)), 0.0)
+    keep = w > 0
+    w *= (C0 / np.sum(a[keep] * w[keep] ** alpha)) ** (1 / alpha)
+    D = float(np.sum(f2[keep] / w[keep]))
+    return dict(D=D, D_norm=D * C0 ** (1 / alpha), f2=f2, w=w, edges=list(tree))
+
+
 def shear_stats(sol, b):
     """joint fit  ln tau = s_r ln r + s_l ln l + c ; exact values are b-1 and (b-1)/2."""
     tau = sol["f"] / sol["r"] ** 3
