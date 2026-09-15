@@ -128,10 +128,20 @@ with ThreadPoolExecutor(a.procs) as ex:
     fails += sum(ex.map(run, rest))
 print(f"done: {len(first) + len(rest) - fails} ok, {fails} failed")
 
-subprocess.run([sys.executable, os.path.join(HERE, "collect.py"), "--out", a.out],
-               env=CHILD_ENV)
+rc = subprocess.run([sys.executable, os.path.join(HERE, "collect.py"), "--out", a.out],
+                    env=CHILD_ENV).returncode
+if rc:
+    print("collect.py failed", file=sys.stderr)
 if a.checks:
-    subprocess.run([sys.executable, os.path.join(HERE, "run_checks.py"), "--out", a.out,
-                    "--b", *[f"{x:.6f}" for x in a.b], "--n-sinks", str(a.n_sinks),
-                    "--domain-seed", str(a.domain_seeds[0]), "--kind", a.kind],
-                   env=CHILD_ENV)
+    # the verification suite must run at the same integration step as the campaign,
+    # or C9 and C11 would test a different discretisation
+    rc_checks = subprocess.run(
+        [sys.executable, os.path.join(HERE, "run_checks.py"), "--out", a.out,
+         "--b", *[f"{x:.6f}" for x in a.b], "--n-sinks", str(a.n_sinks),
+         "--domain-seed", str(a.domain_seeds[0]), "--kind", a.kind,
+         "--clip", str(a.clip)], env=CHILD_ENV).returncode
+    if rc_checks:
+        print("run_checks.py reported failures", file=sys.stderr)
+    rc = rc or rc_checks
+# a non-zero exit lets a scheduler or a CI step notice that the campaign is not clean
+sys.exit(1 if (fails or rc) else 0)
