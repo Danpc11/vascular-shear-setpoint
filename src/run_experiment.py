@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from domain import make_domain
 from flows import Net, shear_stats, tau0_from_tree
 from treesearch import reweighted_spt, edge_swap
-from remodel import adapt, grow_peripheral, grow_isotropic, summarize
+from remodel import adapt, adapt_to_budget, grow_peripheral, grow_isotropic, summarize
 
 p = argparse.ArgumentParser()
 p.add_argument("exp", choices=["opt", "starts", "dense", "growth", "fluct", "shear"])
@@ -39,6 +39,9 @@ p.add_argument("--no-reactivate", dest="reactivate", action="store_false",
                help="growth seeds only edges never active: isolates domain growth from regrowth")
 p.add_argument("--sigma", type=float, default=0.0)
 p.add_argument("--mc-samples", type=int, default=0, help=">0: Monte Carlo instead of exact covariance")
+p.add_argument("--match-budget", action="store_true",
+               help="for fluct runs, bisect tau0 so the rest point lands on the budget of\n"
+                    "the sigma=0 run, making loop counts comparable across sigma")
 p.add_argument("--swap-sweeps", type=int, default=0)
 p.add_argument("--out", default="results", help="output directory")
 a = p.parse_args()
@@ -82,11 +85,23 @@ elif a.exp in ("starts", "dense", "fluct"):
     rbar = float(net.allocate([tuple(e) for e in ref["edges"]], a.b)["r"].mean())   # radius scale of the reference tree
     r0 = rbar * np.exp(0.5 * rng.standard_normal(net.m)) if a.exp == "starts" else np.full(net.m, rbar)
     hist = []
-    r, active, steps, err = adapt(net, a.b, r0, ref["tau0"], sigma=a.sigma if a.exp == "fluct" else 0.0,
-                                  kappa=a.kappa, clip=a.clip, max_steps=a.max_steps, tol=a.tol, prune=a.prune,
-                                  mc_samples=a.mc_samples, seed=a.seed, history=hist)
+    if a.exp == "fluct" and a.match_budget:
+        ref_sol = net.allocate([tuple(e) for e in ref["edges"]], a.b)
+        C_ref = net.cost(ref_sol["r_full"], ref_sol["active"], a.b)
+        r, active, steps, err, tau0_used, C_got = adapt_to_budget(
+            net, a.b, r0, ref["tau0"], C_ref, sigma=a.sigma, kappa=a.kappa, clip=a.clip,
+            max_steps=a.max_steps, tol=a.tol, prune=a.prune, mc_samples=a.mc_samples,
+            seed=a.seed)
+    else:
+        tau0_used, C_got = ref["tau0"], np.nan
+        r, active, steps, err = adapt(net, a.b, r0, ref["tau0"],
+                                      sigma=a.sigma if a.exp == "fluct" else 0.0,
+                                      kappa=a.kappa, clip=a.clip, max_steps=a.max_steps,
+                                      tol=a.tol, prune=a.prune, mc_samples=a.mc_samples,
+                                      seed=a.seed, history=hist)
     S = summarize(net, r, active, a.b, sigma=a.sigma if a.exp == "fluct" else 0.0)
-    S.update(steps=steps, final_err=err, converged=bool(err < a.tol), sigma=a.sigma, mc_samples=a.mc_samples,
+    S.update(tau0_used=tau0_used, match_budget=(a.exp=='fluct' and a.match_budget),
+             steps=steps, final_err=err, converged=bool(err < a.tol), sigma=a.sigma, mc_samples=a.mc_samples,
              jaccard_vs_opt=len({net.E[k] for k in np.flatnonzero(active)} & {tuple(e) for e in ref["edges"]}) /
                             len({net.E[k] for k in np.flatnonzero(active)} | {tuple(e) for e in ref["edges"]}))
     emit(S, r, active)
