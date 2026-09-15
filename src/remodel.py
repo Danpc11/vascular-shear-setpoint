@@ -203,34 +203,39 @@ def adapt_to_budget(net, b, r0, tau0_guess, C_target, tol_C=2e-3, iters=6, **kw)
     budget: raising sigma buys more material, so a sweep at fixed tau_0 compares
     networks of different cost and confounds loop count with how much was spent.
 
-    At fixed topology the stationarity condition gives w ∝ lambda^{-1/(alpha+1)}
-    and hence C ∝ tau_0^{-2 alpha/(alpha+1)}, so one run fixes the constant and a
-    single analytic correction lands on the target; the loop below iterates that
-    correction a few times because the topology can change with tau_0. Each pass
-    warm-starts from the previous radii, so the cost is a few adapt calls rather
-    than the twenty-odd a bisection would need.
+    At fixed topology stationarity gives w ∝ lambda^{-1/(alpha+1)} and hence
+    C ∝ tau_0^{-2 alpha/(alpha+1)}, so one run fixes the constant and a single
+    analytic correction lands on the target. The loop repeats that correction
+    because the topology can change with tau_0, and each pass warm-starts from
+    the previous radii, so this costs a few adapt calls rather than the twenty-odd
+    a bisection would need.
 
-    Returns adapt's tuple plus the tau_0 used and the budget reached.
+    Returns (r, active, steps_total, err, tau0_used, C_reached, budget_ok) where
+    tau0_used is the value that produced the radii returned, not the next
+    correction, and budget_ok says whether |C/C_target - 1| < tol_C. A caller
+    must require both err < tol and budget_ok before calling a run converged.
     """
     alpha = net.alpha(b)
-    expo = (alpha + 1.0) / (2.0 * alpha)      # tau0 correction exponent
+    expo = (alpha + 1.0) / (2.0 * alpha)
     tau0 = float(tau0_guess)
     r_start = r0.copy()
     r = active = None
     steps_total, err = 0, np.inf
+    tau0_used, C = tau0, np.nan
     for _ in range(iters):
         r, active, steps, err = adapt(net, b, r_start, tau0, **kw)
         steps_total += steps
+        tau0_used = tau0                      # the value that produced these radii
         C = net.cost(r, active, b)
         if not np.isfinite(C) or C <= 0:
             break
         if abs(C / C_target - 1.0) < tol_C:
             break
-        # C ∝ tau0^{-1/expo}, so to multiply C by (C_target/C) raise tau0 by
-        # (C / C_target)^{expo}.
+        # C ∝ tau0^{-1/expo}: to scale C by C_target/C, scale tau0 by (C/C_target)^expo
         tau0 *= (C / C_target) ** expo
         r_start = r.copy()
-    return r, active, steps_total, err, float(tau0), float(net.cost(r, active, b))
+    budget_ok = bool(np.isfinite(C) and C > 0 and abs(C / C_target - 1.0) < tol_C)
+    return r, active, steps_total, err, float(tau0_used), float(C), budget_ok
 
 
 def dissipation_under_load(net, r, active, sigma, nodes=None):
