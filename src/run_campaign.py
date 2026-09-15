@@ -28,8 +28,10 @@ p.add_argument("--procs", type=int, default=os.cpu_count() or 4,
                help="worker processes run at once")
 p.add_argument("--threads", type=int, default=1,
                help="BLAS/OpenMP threads inside each process; total load is procs x threads")
-p.add_argument("--b", type=float, nargs="+", default=[1.0, 0.75, 2 / 3],
-               help="metabolic exponents")
+p.add_argument("--b", type=float, nargs="+", default=[1.0, 0.75, 2 / 3, 0.5, 0.25],
+               help="metabolic exponents. 1 is the volume cost, 3/4 and 2/3 are Kleiber and\n"
+                    "Rubner, and 1/2 and 1/4 continue the sequence toward the b -> 0 limit in\n"
+                    "which the cost stops weighing conductance and only counts channels")
 p.add_argument("--domain-seeds", type=int, nargs="+", default=[3, 4, 5])
 p.add_argument("--n-sinks", type=int, default=600)
 p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
