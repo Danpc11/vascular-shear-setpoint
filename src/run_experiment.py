@@ -14,7 +14,7 @@ can be compared afterwards with scripts/collect.py against the best tree found.
 import argparse, os, sys, json, time, numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from domain import make_domain
-from flows import Net, shear_stats, tau0_from_tree
+from flows import Net, shear_stats, tau0_from_tree, allocate_under_load
 from treesearch import reweighted_spt, edge_swap
 from remodel import (adapt, adapt_to_budget, grow_peripheral, grow_isotropic,
                      summarize, dissipation_under_load)
@@ -104,14 +104,13 @@ elif a.exp in ("starts", "dense", "fluct"):
                                       seed=a.seed, history=hist)
     S = summarize(net, r, active, a.b, sigma=a.sigma if a.exp == "fluct" else 0.0)
     if a.exp == "fluct" and a.sigma > 0:
-        # the reference tree evaluated under the same loading, so that the excess is
-        # measured against the best tree under the fluctuations rather than against its
-        # own mean-demand dissipation
-        rs = net.allocate([tuple(e) for e in ref["edges"]], a.b)
-        S["D_ref_load"] = (dissipation_under_load(net, rs["r_full"], rs["active"], a.sigma)
-                           * net.cost(rs["r_full"], rs["active"], a.b) ** (1.0 / net.alpha(a.b)))
-    # a run counts as converged only if the shear tolerance AND, where a budget was
-    # targeted, the budget tolerance are both met
+        # Reference for the fluctuating runs: the topology found by the mean-demand
+        # search, with its allocation re-optimised under the same loading through
+        # <f_e^2>. That is the best allocation on that tree under fluctuations, not
+        # the best tree under fluctuations: the topology is inherited and is not
+        # re-optimised, so D_ratio_load is an excess over a fixed-topology reference.
+        S["D_ref_load"] = allocate_under_load(net, [tuple(e) for e in ref["edges"]],
+                                              a.b, a.sigma)["D_norm"]
     S.update(tau0_used=tau0_used, C_target_ok=budget_ok,
              match_budget=(a.exp == 'fluct' and a.match_budget),
              steps=steps, final_err=err, converged=bool(err < a.tol and budget_ok), sigma=a.sigma, mc_samples=a.mc_samples,
