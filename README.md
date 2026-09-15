@@ -29,7 +29,11 @@ python3 src/make_figures.py --out results
 `--procs` workers. Every setting is a flag; `--help` lists them. Useful ones:
 
 ```
---b 1.0 0.75 0.6667          metabolic exponents
+--b 1.0 0.75 0.6667 0.5 0.25 metabolic exponents; 1 is the volume cost, 3/4 and 2/3 are
+                             Kleiber and Rubner, and the last two approach the b -> 0 limit
+                             in which the budget counts channels rather than weighing them
+--threads 1                  BLAS threads inside each process; total load is procs x threads
+--clip 0.02                  integration step cap; 0.15 is not converged, see check C14
 --domain-seeds 3 4 5         independent domains
 --n-sinks 600                sinks per domain
 --starts 8                   random-start runs per (b, domain)
@@ -39,6 +43,14 @@ python3 src/make_figures.py --out results
 --max-steps 20000 --tol 1e-6 --fluct-tol 1e-5
 --mc-samples 32              Monte Carlo instead of exact covariance (use for n-sinks > 1000)
 --skip fluct growth          leave out experiment families
+--no-reactivate-control      repeat peripheral growth with regrowth of pruned edges disabled,
+                             which separates enlarging the domain from rebuilding lost vessels
+--match-budget-control       repeat the fluctuating sweep with tau0 chosen so every run lands
+                             on the reference budget, so loop counts are not confounded with
+                             how much material was bought
+--seed-control               repeat peripheral growth at a second seeding scale, since the
+                             seeding of newly admissible edges is a free parameter of the
+                             protocol and the answer depends on it
 --dry-run                    print the job list
 ```
 
@@ -91,9 +103,10 @@ C7  the Lyapunov identity reproduces the measured dF/dt
 C8  D_norm is invariant under rescaling all radii
 C9  optimal and adapted trees are both rest points yet differ in dissipation
 C10 exact certificate: all spanning trees of a small domain enumerated
-C11 robustness to kappa, prune cut, clip and tolerance
+C11 robustness to kappa, prune cut and tolerance (the step is C14)
 C12 robustness to domain seed and candidate-graph type
 C13 convergence of the fluctuating-demand runs
+C14 the endpoint is converged in the integration step
 ```
 
 C10 and C11 report rather than assert. C10 measures how far the heuristic and the
