@@ -196,6 +196,43 @@ def grow_isotropic(net, b, tau0, stages, r_seed, g0=0.2, **kw):
     return r, active, diag
 
 
+def adapt_to_budget(net, b, r0, tau0_guess, C_target, tol_C=2e-3, iters=6, **kw):
+    """Adapt with tau_0 chosen so the rest point lands on a prescribed budget.
+
+    The rule holds the set-point, which fixes the multiplier lambda and not the
+    budget: raising sigma buys more material, so a sweep at fixed tau_0 compares
+    networks of different cost and confounds loop count with how much was spent.
+
+    At fixed topology the stationarity condition gives w ∝ lambda^{-1/(alpha+1)}
+    and hence C ∝ tau_0^{-2 alpha/(alpha+1)}, so one run fixes the constant and a
+    single analytic correction lands on the target; the loop below iterates that
+    correction a few times because the topology can change with tau_0. Each pass
+    warm-starts from the previous radii, so the cost is a few adapt calls rather
+    than the twenty-odd a bisection would need.
+
+    Returns adapt's tuple plus the tau_0 used and the budget reached.
+    """
+    alpha = net.alpha(b)
+    expo = (alpha + 1.0) / (2.0 * alpha)      # tau0 correction exponent
+    tau0 = float(tau0_guess)
+    r_start = r0.copy()
+    r = active = None
+    steps_total, err = 0, np.inf
+    for _ in range(iters):
+        r, active, steps, err = adapt(net, b, r_start, tau0, **kw)
+        steps_total += steps
+        C = net.cost(r, active, b)
+        if not np.isfinite(C) or C <= 0:
+            break
+        if abs(C / C_target - 1.0) < tol_C:
+            break
+        # C ∝ tau0^{-1/expo}, so to multiply C by (C_target/C) raise tau0 by
+        # (C / C_target)^{expo}.
+        tau0 *= (C / C_target) ** expo
+        r_start = r.copy()
+    return r, active, steps_total, err, float(tau0), float(net.cost(r, active, b))
+
+
 def dissipation_under_load(net, r, active, sigma, nodes=None):
     """Expected dissipation under the fluctuating demand itself, tr(L^+ Q).
 
