@@ -124,11 +124,21 @@ def adapt(net, b, r0, tau0, nodes=None, sigma=0.0, kappa=0.2, max_steps=5000,
     return r, active, steps, err
 
 
-def grow_peripheral(net, b, tau0, stages, r_seed, **kw):
+def grow_peripheral(net, b, tau0, stages, r_seed, reactivate=True, **kw):
     """Sinks appear outward from the source in `stages` shells.
 
-    The rule is run to convergence after each shell, and edges that become
-    admissible are seeded at half the median radius of the current network.
+    reactivate=True  seeds every admissible edge that currently carries no
+                     radius, including ones pruned in an earlier shell, so a
+                     vessel lost early can be rebuilt as the tissue around it
+                     grows. This is the protocol used in the campaign, and it
+                     gives the rule a move that fixed-domain adaptation does not
+                     have; read biologically it is angiogenesis into new tissue.
+    reactivate=False seeds only edges never previously active, so a pruned
+                     vessel stays pruned. This separates enlarging the domain
+                     from allowing regrowth, and is the control against which
+                     the default must be read.
+
+    Returns radii, active mask and a per-shell diagnostic list.
     """
     dist = np.linalg.norm(net.pts - net.pts[net.src], axis=1)
     order = np.argsort(dist)
@@ -137,37 +147,75 @@ def grow_peripheral(net, b, tau0, stages, r_seed, **kw):
     nodes[net.src] = True
     r = np.zeros(net.m)
     active = np.zeros(net.m, bool)
+    # an edge counts as already given its chance once it has been seeded, not
+    # only if it survived: otherwise every pruned edge is reseeded and the
+    # control is vacuous.
+    ever_seeded = np.zeros(net.m, bool)
+    tol = kw.get("tol", 1e-6)
+    diag = []
     for s in range(stages):
         lo = int(len(order) * s / stages)
         hi = int(len(order) * (s + 1) / stages)
         nodes[order[lo:hi]] = True
         fresh = (r == 0) & nodes[net.Ei] & nodes[net.Ej]
+        if not reactivate:
+            fresh &= ~ever_seeded
+        ever_seeded |= fresh
         r[fresh] = 0.5 * (r_seed if not (r > 0).any() else np.median(r[r > 0]))
-        r, active, _, _ = adapt(net, b, r, tau0, nodes, **kw)
-    return r, active
+        r, active, st, e = adapt(net, b, r, tau0, nodes, **kw)
+        ever_seeded |= active
+        diag.append(dict(shell=s + 1, sinks=int(nodes.sum() - 1), steps=int(st),
+                         final_err=float(e), converged=bool(e < tol),
+                         edges=int(active.sum()), seeded=int(fresh.sum())))
+    return r, active, diag
 
 
 def grow_isotropic(net, b, tau0, stages, r_seed, g0=0.2, **kw):
     """All sinks present; the domain is dilated from g0 to 1 in `stages`.
 
-    net.L is mutated during the sweep and restored in a finally block, so an
-    interrupted run leaves the Net usable. Note that net.G still carries the
-    unscaled lengths: only routines reading net.L (adapt, a_coef) see the
-    dilation, which is all this function needs.
+    Scaling every length by a common factor is a symmetry of the dissipation and
+    of the cost, so this should do nothing beyond adaptation on the fixed
+    domain; it is the negative control for grow_peripheral. net.L is restored in
+    a finally block and net.G keeps the unscaled lengths, so only routines
+    reading net.L see the dilation.
     """
     L_final = net.L.copy()
     r = np.full(net.m, 0.5 * r_seed)
     active = np.zeros(net.m, bool)
+    tol = kw.get("tol", 1e-6)
+    diag = []
     try:
-        for g in np.linspace(g0, 1.0, stages):
+        for k, g in enumerate(np.linspace(g0, 1.0, stages)):
             net.L = L_final * g
-            r, active, _, _ = adapt(net, b, r, tau0, **kw)
+            r, active, st, e = adapt(net, b, r, tau0, **kw)
+            diag.append(dict(shell=k + 1, scale=float(g), steps=int(st),
+                             final_err=float(e), converged=bool(e < tol),
+                             edges=int(active.sum())))
     finally:
         net.L = L_final
-    return r, active
+    return r, active, diag
 
 
-def summarize(net, r, active, b):
+def dissipation_under_load(net, r, active, sigma, nodes=None):
+    """Expected dissipation under the fluctuating demand itself, tr(L^+ Q).
+
+    summarize() reports D at the mean demand, which is not what a network
+    adapted under fluctuations is minimizing. This returns the quantity that is,
+    with Q = mean(I) mean(I)^T + Cov(I).
+    """
+    nodes = np.ones(net.n, bool) if nodes is None else nodes
+    mu = net.unit_demand(nodes)
+    w = net.conductance(r, active)
+    if sigma <= 0:
+        return net.dissipation(w, mu, nodes)[0]
+    idx, S = _cov_demand(net, nodes, sigma)
+    Lap = (net.B[idx] * w) @ net.B[idx].T
+    Lp = pinvh(Lap)
+    Q = np.outer(mu[idx], mu[idx]) + S
+    return float(np.trace(Lp @ Q))
+
+
+def summarize(net, r, active, b, sigma=0.0):
     """Support size, cycle rank, budget-invariant dissipation and budget.
 
     Evaluated on the full node set, so call it on a converged final network
@@ -175,5 +223,10 @@ def summarize(net, r, active, b):
     """
     G = nx.Graph([net.E[k] for k in np.flatnonzero(active)])
     beta = int(active.sum() - G.number_of_nodes() + nx.number_connected_components(G))
-    return dict(edges=int(active.sum()), beta=beta,
-                D_norm=net.d_norm(r, active, b), C=net.cost(r, active, b))
+    C = net.cost(r, active, b)
+    out = dict(edges=int(active.sum()), beta=beta,
+               D_norm=net.d_norm(r, active, b), C=C)
+    if sigma > 0:
+        out["D_norm_load"] = (dissipation_under_load(net, r, active, sigma)
+                              * C ** (1.0 / net.alpha(b)))
+    return out
