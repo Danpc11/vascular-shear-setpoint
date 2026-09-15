@@ -4,6 +4,9 @@ D_ratio = D_norm / min D_norm over all tree runs with the same b, n_sinks, domai
 import glob, os, sys, pandas as pd
 import argparse; _p = argparse.ArgumentParser(); _p.add_argument("--out", default="results"); out = _p.parse_args().out
 frames = [pd.read_csv(f, sep="\t") for f in glob.glob(os.path.join(out, "*.tsv")) if os.path.basename(f) != "summary.tsv"]
+if not frames:
+    raise SystemExit(f"no per-experiment .tsv files in {out!r}: run src/run_experiment.py "
+                     f"or src/run_campaign.py first")
 df = pd.concat(frames, ignore_index=True)
 # run_experiment.py appends, so re-running the campaign leaves duplicate rows for
 # the same configuration. Keep the most recent of each; `seconds` differs between
@@ -27,9 +30,10 @@ pool = df[(df.get("beta", 0) == 0) & df["D_norm"].notna()]
 best = pool.groupby(key)["D_norm"].min().rename("D_best").reset_index()
 df = df.merge(best, on=key, how="left")
 df["D_ratio"] = df["D_norm"] / df["D_best"]
-# For fluctuating runs the like-for-like reference is the best tree evaluated under the
-# same Q, stored per row as D_ref_load; D_best is its mean-demand dissipation and would
-# compare different loadings. Rows without D_ref_load fall back to D_best.
+# For fluctuating runs the reference stored per row, D_ref_load, is the mean-demand
+# topology with its allocation re-optimised under the same loading: a fixed-topology
+# reference, not the best tree under fluctuations. D_best is the mean-demand dissipation
+# and would compare different loadings. Rows without D_ref_load fall back to D_best.
 ref = df["D_best"]
 if "D_ref_load" in df:
     ref = df["D_ref_load"].where(df["D_ref_load"].notna(), df["D_best"])
