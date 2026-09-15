@@ -33,7 +33,11 @@ p.add_argument("--b", type=float, nargs="+", default=[1.0, 0.75, 2 / 3, 0.5, 0.2
                     "Rubner, and 1/2 and 1/4 continue the sequence toward the b -> 0 limit in\n"
                     "which the cost stops weighing conductance and only counts channels")
 p.add_argument("--domain-seeds", type=int, nargs="+", default=[3, 4, 5])
-p.add_argument("--n-sinks", type=int, default=600)
+p.add_argument("--n-sinks", type=int, nargs="+", default=[600],
+               help="domain sizes. The excess dissipation of every protocol grows with size\n"
+                    "and is not converged at 600, and the sign of the domain-growth effect\n"
+                    "changes between 120 and 300, so a single size is not a result: give a\n"
+                    "list and report the trend")
 p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
 p.add_argument("--starts", type=int, default=8, help="random-start runs per (b, domain)")
 p.add_argument("--growth-stages", type=int, nargs="+", default=[3, 6, 12, 24])
@@ -70,43 +74,43 @@ for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
     CHILD_ENV[var] = str(a.threads)
 
 
-def job(exp, b, d, *extra):
+def job(exp, b, d, N, *extra):
     return [sys.executable, os.path.join(HERE, "run_experiment.py"), exp,
             "--b", f"{b:.6f}", "--domain-seed", str(d),
-            "--n-sinks", str(a.n_sinks), "--kind", a.kind,
+            "--n-sinks", str(N), "--kind", a.kind,
             "--kappa", str(a.kappa), "--clip", str(a.clip), "--out", a.out, *map(str, extra)]
 
 
 first, rest = [], []
-for b, d in itertools.product(a.b, a.domain_seeds):
+for b, d, N in itertools.product(a.b, a.domain_seeds, a.n_sinks):
     if "opt" not in a.skip:
-        first.append(job("opt", b, d, "--swap-sweeps", a.swap_sweeps))
+        first.append(job("opt", b, d, N, "--swap-sweeps", a.swap_sweeps))
     if "starts" not in a.skip:
-        rest += [job("starts", b, d, "--seed", s, "--max-steps", a.max_steps, "--tol", a.tol)
+        rest += [job("starts", b, d, N, "--seed", s, "--max-steps", a.max_steps, "--tol", a.tol)
                  for s in range(a.starts)]
     if "dense" not in a.skip:
-        rest.append(job("dense", b, d, "--max-steps", a.max_steps, "--tol", a.tol))
+        rest.append(job("dense", b, d, N, "--max-steps", a.max_steps, "--tol", a.tol))
     if "growth" not in a.skip:
-        rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
+        rest += [job("growth", b, d, N, "--stages", K, "--growth-mode", "peripheral",
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.growth_stages]
-        rest += [job("growth", b, d, "--stages", K, "--growth-mode", "isotropic",
+        rest += [job("growth", b, d, N, "--stages", K, "--growth-mode", "isotropic",
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.isotropic_stages]
         if a.seed_control:
-            rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
+            rest += [job("growth", b, d, N, "--stages", K, "--growth-mode", "peripheral",
                          "--r-seed", 0.25, "--max-steps", a.max_steps, "--tol", a.tol)
                      for K in a.growth_stages]
         if a.no_reactivate_control:
-            rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
+            rest += [job("growth", b, d, N, "--stages", K, "--growth-mode", "peripheral",
                          "--no-reactivate", "--max-steps", a.max_steps, "--tol", a.tol)
                      for K in a.growth_stages]
     if "fluct" not in a.skip:
-        rest += [job("fluct", b, d, "--sigma", sg, "--max-steps", a.max_steps,
+        rest += [job("fluct", b, d, N, "--sigma", sg, "--max-steps", a.max_steps,
                      "--tol", a.fluct_tol, "--mc-samples", a.mc_samples) for sg in a.sigmas]
         if a.match_budget_control:
-            rest += [job("fluct", b, d, "--sigma", sg, "--match-budget", "--max-steps", a.max_steps,
+            rest += [job("fluct", b, d, N, "--sigma", sg, "--match-budget", "--max-steps", a.max_steps,
                          "--tol", a.fluct_tol, "--mc-samples", a.mc_samples) for sg in a.sigmas]
     if "shear" not in a.skip:
-        rest.append(job("shear", b, d))
+        rest.append(job("shear", b, d, N))
 
 if a.dry_run:
     for j in first + rest:
@@ -144,7 +148,7 @@ if a.checks:
     # or C9 and C11 would test a different discretisation
     rc_checks = subprocess.run(
         [sys.executable, os.path.join(HERE, "run_checks.py"), "--out", a.out,
-         "--b", *[f"{x:.6f}" for x in a.b], "--n-sinks", str(a.n_sinks),
+         "--b", *[f"{x:.6f}" for x in a.b], "--n-sinks", str(a.n_sinks[0]),
          "--domain-seed", str(a.domain_seeds[0]), "--kind", a.kind,
          "--clip", str(a.clip)], env=CHILD_ENV).returncode
     if rc_checks:
