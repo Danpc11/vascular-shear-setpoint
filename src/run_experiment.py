@@ -33,6 +33,10 @@ p.add_argument("--tol", type=float, default=1e-6)
 p.add_argument("--prune", type=float, default=1e-3)
 p.add_argument("--stages", type=int, default=6)
 p.add_argument("--growth-mode", default="peripheral", choices=["peripheral", "isotropic"])
+p.add_argument("--reactivate", dest="reactivate", action="store_true", default=True,
+               help="growth may reseed edges pruned in an earlier shell (default)")
+p.add_argument("--no-reactivate", dest="reactivate", action="store_false",
+               help="growth seeds only edges never active: isolates domain growth from regrowth")
 p.add_argument("--sigma", type=float, default=0.0)
 p.add_argument("--mc-samples", type=int, default=0, help=">0: Monte Carlo instead of exact covariance")
 p.add_argument("--swap-sweeps", type=int, default=0)
@@ -77,19 +81,30 @@ elif a.exp in ("starts", "dense", "fluct"):
     r, active, steps, err = adapt(net, a.b, r0, ref["tau0"], sigma=a.sigma if a.exp == "fluct" else 0.0,
                                   kappa=a.kappa, clip=a.clip, max_steps=a.max_steps, tol=a.tol, prune=a.prune,
                                   mc_samples=a.mc_samples, seed=a.seed, history=hist)
-    S = summarize(net, r, active, a.b)
+    S = summarize(net, r, active, a.b, sigma=a.sigma if a.exp == "fluct" else 0.0)
     S.update(steps=steps, final_err=err, converged=bool(err < a.tol), sigma=a.sigma, mc_samples=a.mc_samples,
              jaccard_vs_opt=len({net.E[k] for k in np.flatnonzero(active)} & {tuple(e) for e in ref["edges"]}) /
                             len({net.E[k] for k in np.flatnonzero(active)} | {tuple(e) for e in ref["edges"]}))
     emit(S, r, active)
 
 elif a.exp == "growth":
-    ref = tau0_ref(); kw = dict(kappa=a.kappa, clip=a.clip, max_steps=a.max_steps, tol=a.tol, prune=a.prune)
-    fn = grow_peripheral if a.growth_mode == "peripheral" else grow_isotropic
-    r, active = fn(net, a.b, ref["tau0"], a.stages, r_seed=0.05, **kw)
-    S = summarize(net, r, active, a.b); S.update(stages=a.stages, growth_mode=a.growth_mode,
-        jaccard_vs_opt=len({net.E[k] for k in np.flatnonzero(active)} & {tuple(e) for e in ref["edges"]}) /
-                       len({net.E[k] for k in np.flatnonzero(active)} | {tuple(e) for e in ref["edges"]}))
+    ref = tau0_ref(); kw = dict(kappa=a.kappa, clip=a.clip, max_steps=a.max_steps,
+                                tol=a.tol, prune=a.prune)
+    if a.growth_mode == "peripheral":
+        r, active, diag = grow_peripheral(net, a.b, ref["tau0"], a.stages, r_seed=0.05,
+                                          reactivate=a.reactivate, **kw)
+    else:
+        r, active, diag = grow_isotropic(net, a.b, ref["tau0"], a.stages, r_seed=0.05, **kw)
+    S = summarize(net, r, active, a.b)
+    S.update(stages=a.stages, growth_mode=a.growth_mode, reactivate=a.reactivate,
+             steps=int(sum(d["steps"] for d in diag)),
+             final_err=max(d["final_err"] for d in diag),
+             converged=bool(all(d["converged"] for d in diag)),
+             shells_converged=sum(d["converged"] for d in diag),
+             jaccard_vs_opt=len({net.E[k] for k in np.flatnonzero(active)} & {tuple(e) for e in ref["edges"]}) /
+                            len({net.E[k] for k in np.flatnonzero(active)} | {tuple(e) for e in ref["edges"]}))
+    json.dump(diag, open(os.path.join(a.out, f"growth_shells_{tag}_K{a.stages}{a.growth_mode[0]}"
+                                      f"{'' if a.reactivate else '_noreact'}.json"), "w"), indent=1)
     emit(S, r, active)
 
 elif a.exp == "shear":
