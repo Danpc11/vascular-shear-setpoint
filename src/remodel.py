@@ -140,7 +140,7 @@ def adapt(net, b, r0, tau0, nodes=None, sigma=0.0, kappa=0.2, max_steps=5000,
     return r, active, steps, err
 
 
-def grow_peripheral(net, b, tau0, stages, r_seed, reactivate=True, **kw):
+def grow_peripheral(net, b, tau0, stages, r_seed, reactivate=True, seed_frac=0.5, **kw):
     """Sinks appear outward from the source in `stages` shells.
 
     reactivate=True  seeds every admissible edge that currently carries no
@@ -153,6 +153,13 @@ def grow_peripheral(net, b, tau0, stages, r_seed, reactivate=True, **kw):
                      vessel stays pruned. This separates enlarging the domain
                      from allowing regrowth, and is the control against which
                      the default must be read.
+
+    A newly admissible edge is seeded at `seed_frac` times the median radius of the
+    current network, or times `r_seed` on the first shell when there is no network
+    yet. Both are free parameters of the protocol and the answer depends on them:
+    at 300 sinks, raising r_seed from 0.05 to 0.25 lowers the final dissipation by
+    about 5 per cent. They must therefore be reported, and varied when the growth
+    advantage is quoted.
 
     Returns radii, active mask and a per-shell diagnostic list.
     """
@@ -177,12 +184,13 @@ def grow_peripheral(net, b, tau0, stages, r_seed, reactivate=True, **kw):
         if not reactivate:
             fresh &= ~ever_seeded
         ever_seeded |= fresh
-        r[fresh] = 0.5 * (r_seed if not (r > 0).any() else np.median(r[r > 0]))
+        r[fresh] = seed_frac * (r_seed if not (r > 0).any() else np.median(r[r > 0]))
         r, active, st, e = adapt(net, b, r, tau0, nodes, **kw)
         ever_seeded |= active
         diag.append(dict(shell=s + 1, sinks=int(nodes.sum() - 1), steps=int(st),
                          final_err=float(e), converged=bool(e < tol),
-                         edges=int(active.sum()), seeded=int(fresh.sum())))
+                         edges=int(active.sum()), seeded=int(fresh.sum()),
+                         seed_frac=float(seed_frac), r_seed=float(r_seed)))
     return r, active, diag
 
 
