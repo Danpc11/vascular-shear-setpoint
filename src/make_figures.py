@@ -43,28 +43,36 @@ C = palette(5)
 #    without reactivation answer different questions, and averaging them hides the fact
 #    that most of the growth benefit is regrowth of pruned vessels.
 fig, ax = plt.subplots(figsize=(6.5, 3))
-series = [("starts", dict(), "local rule, random start", C[1], "o"),
-          ("dense", dict(), "local rule, dense start", C[3], "s"),
-          ("opt", dict(), "tree search", C[2], "D"),
-          ("growth", dict(growth_mode="peripheral", reactivate=True),
-           "growth, reactivation on", C[0], "^"),
-          ("growth", dict(growth_mode="peripheral", reactivate=False),
-           "growth, reactivation off", C[0], "v")]
-for k, (exp, sel, lab, col, mk) in enumerate(series):
+# Growth depends strongly on the number of shells, so averaging shell counts into one
+# point would mix protocols. The panel shows the deepest growth available, stated in the
+# label; the shell dependence itself is the second figure.
+gmax = df[df.exp == "growth"]["stages"].max() if "stages" in df else None
+series = [("starts", dict(), "local rule, random start", "o"),
+          ("dense", dict(), "local rule, dense start", "s"),
+          ("opt", dict(), "tree search", "D"),
+          ("growth", dict(growth_mode="peripheral", reactivate=True, stages=gmax),
+           f"growth, {int(gmax)} shells, regrowth on" if gmax else "growth", "^"),
+          ("growth", dict(growth_mode="peripheral", reactivate=False, stages=gmax),
+           f"growth, {int(gmax)} shells, regrowth off" if gmax else "growth, no regrowth", "v")]
+# b is already the x axis, so colour distinguishes protocols here, not exponents
+pc = ["#B3312C", "#A9705F", "#1B3A5F", "#3E6C96", "#3E6C96"]
+fig, ax = plt.subplots(figsize=(6.6, 3.1))
+for k, (exp, sel, lab, mk) in enumerate(series):
     g = df[(df.exp == exp) & (df.get("beta", 0) == 0)]
     for key, val in sel.items():
-        if key in g:
+        if key in g and val is not None:
             g = g[g[key] == val]
     g, _ = usable(g, lab)
     if not len(g):
         continue
     st = g.groupby("b")["D_ratio"].agg(["mean", "std", "count"]).reset_index()
-    ax.errorbar(st.b + 0.004 * (k - 2), 100 * (st["mean"] - 1), yerr=100 * st["std"].fillna(0),
-                fmt=mk, color=col, ms=4, capsize=2, mfc="white" if mk == "v" else col,
-                label=lab)
+    ax.errorbar(st.b, 100 * (st["mean"] - 1), yerr=100 * st["std"].fillna(0),
+                fmt=mk + "-", color=pc[k], ms=4.5, capsize=2, lw=1.0,
+                mfc="white" if mk == "v" else pc[k],
+                label=f"{lab}  (n={int(st['count'].min())}–{int(st['count'].max())})")
 ax.axhline(0, color="0.6", lw=0.6)
-ax.set(xlabel="metabolic exponent b", ylabel=r"excess dissipation (%)")
-ax.legend(fontsize=7, frameon=False)
+ax.set(xlabel="metabolic exponent $b$", ylabel=r"excess dissipation (%)")
+ax.legend(fontsize=6.5, frameon=False, loc="upper center", ncol=2, columnspacing=1.0)
 fig.tight_layout(); fig.savefig(os.path.join(out, "figures", "excess_dissipation.png"), dpi=250)
 
 # 2. growth against the number of shells, the two reactivation protocols apart
