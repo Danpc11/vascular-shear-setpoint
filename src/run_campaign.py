@@ -36,6 +36,9 @@ p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
 p.add_argument("--starts", type=int, default=8, help="random-start runs per (b, domain)")
 p.add_argument("--growth-stages", type=int, nargs="+", default=[3, 6, 12, 24])
 p.add_argument("--isotropic-stages", type=int, nargs="+", default=[6, 12])
+p.add_argument("--no-reactivate-control", action="store_true",
+               help="also run peripheral growth with reactivation disabled, the control that\n"
+                    "separates domain growth from regrowth of pruned vessels")
 p.add_argument("--sigmas", type=float, nargs="+", default=[0.5, 1.0, 1.5, 2.0, 3.0, 4.0])
 p.add_argument("--max-steps", type=int, default=20000)
 p.add_argument("--tol", type=float, default=1e-6)
@@ -81,6 +84,10 @@ for b, d in itertools.product(a.b, a.domain_seeds):
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.growth_stages]
         rest += [job("growth", b, d, "--stages", K, "--growth-mode", "isotropic",
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.isotropic_stages]
+        if a.no_reactivate_control:
+            rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
+                         "--no-reactivate", "--max-steps", a.max_steps, "--tol", a.tol)
+                     for K in a.growth_stages]
     if "fluct" not in a.skip:
         rest += [job("fluct", b, d, "--sigma", sg, "--max-steps", a.max_steps,
                      "--tol", a.fluct_tol, "--mc-samples", a.mc_samples) for sg in a.sigmas]
