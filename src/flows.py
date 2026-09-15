@@ -83,8 +83,15 @@ def shear_stats(sol, b):
     x, z, y = np.log(sol["r"]), np.log(sol["l"]), np.log(tau)
     A = np.c_[x, z, np.ones_like(x)]; coef = np.linalg.lstsq(A, y, rcond=None)[0]
     s1, c1 = np.polyfit(x, y, 1); resid = y - (s1 * x + c1)
+    # The residual of the free one-variable fit equals |1-b|/2 times the spread of
+    # ln l that survives once ln r is regressed out, not |1-b|/2 times sd(ln l):
+    # along a tree the two covary, and using the raw spread overstates the
+    # prediction by a few per cent.
+    a1, a0 = np.polyfit(x, z, 1); z_res = z - (a1 * x + a0)
     return dict(slope_r_joint=coef[0], slope_l_joint=coef[1], slope_r_only=s1,
-                scatter_lntau_r_only=resid.std(), scatter_pred=abs(1 - b) / 2 * z.std(),
+                scatter_lntau_r_only=resid.std(),
+                scatter_pred=abs(1 - b) / 2 * z_res.std(),
+                q_fitted=float(a1),
                 tau_ratio=tau.max() / tau.min(), r_ratio=sol["r"].max() / sol["r"].min(),
                 exact_r=b - 1, exact_l=(b - 1) / 2)
 
