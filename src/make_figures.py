@@ -93,6 +93,10 @@ for k, b in enumerate(bs):
                     fmt=mk + ls, color=C[k], ms=4, mfc="white" if not react else C[k],
                     capsize=2, lw=1.1,
                     label=blabel(b) + ("" if react else ", no regrowth"))
+if not ax.get_legend_handles_labels()[1]:
+    plt.close(fig)
+    print("  no growth runs in this campaign: growth_stages.png not written")
+    raise SystemExit(0)
 ax.set(xscale="log", xlabel="growth shells", ylabel=r"excess dissipation (%)")
 ax.set_xticks([3, 6, 12, 24]); ax.set_xticklabels(["3", "6", "12", "24"]); ax.minorticks_off()
 ax.legend(fontsize=5.5, frameon=False, ncol=2, columnspacing=0.8, handlelength=1.4)
@@ -115,9 +119,14 @@ for k, b in enumerate(bs):
         ax.errorbar(s.sigma, s["mean"], yerr=s["std"].fillna(0), fmt=mk + ls, color=C[k],
                     ms=4, mfc="white" if mb else C[k], capsize=2, lw=1.1,
                     label=blabel(b) + (", matched budget" if mb else ""))
-ax.set(xlabel=r"demand fluctuation $\sigma$", ylabel=r"surviving loops $\beta$")
-ax.legend(frameon=False, fontsize=6)
-fig.tight_layout(); fig.savefig(os.path.join(out, "figures", "loops_vs_sigma.png"), dpi=250)
+if ax.get_legend_handles_labels()[1]:
+    ax.set(xlabel=r"demand fluctuation $\sigma$", ylabel=r"surviving loops $\beta$")
+    ax.legend(frameon=False, fontsize=6)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "figures", "loops_vs_sigma.png"), dpi=250)
+else:
+    plt.close(fig)
+    print("  no fluctuating runs in this campaign: loops_vs_sigma.png not written")
 # every point's realisation count, so a curve built from fewer runs is visible
 for exp in sorted(df.exp.unique()):
     g = df[df.exp == exp]
