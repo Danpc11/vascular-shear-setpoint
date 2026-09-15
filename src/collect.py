@@ -27,7 +27,13 @@ pool = df[(df.get("beta", 0) == 0) & df["D_norm"].notna()]
 best = pool.groupby(key)["D_norm"].min().rename("D_best").reset_index()
 df = df.merge(best, on=key, how="left")
 df["D_ratio"] = df["D_norm"] / df["D_best"]
-df["D_ratio_load"] = df["D_eff"] / df["D_best"]
+# For fluctuating runs the like-for-like reference is the best tree evaluated under the
+# same Q, stored per row as D_ref_load; D_best is its mean-demand dissipation and would
+# compare different loadings. Rows without D_ref_load fall back to D_best.
+ref = df["D_best"]
+if "D_ref_load" in df:
+    ref = df["D_ref_load"].where(df["D_ref_load"].notna(), df["D_best"])
+df["D_ratio_load"] = df["D_eff"] / ref
 df.to_csv(os.path.join(out, "summary.tsv"), sep="\t", index=False)
 cols = [c for c in ["exp", "b", "n_sinks", "domain_seed", "seed", "sigma", "stages", "growth_mode", "edges", "beta", "D_ratio", "converged", "steps", "seconds"] if c in df]
 print(df[cols].sort_values(["b", "exp"]).to_string(index=False))
