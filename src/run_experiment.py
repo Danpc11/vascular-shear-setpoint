@@ -45,6 +45,9 @@ a = p.parse_args()
 
 os.makedirs(a.out, exist_ok=True)
 tag = f"b{a.b:.4f}_n{a.n_sinks}_d{a.domain_seed}_{a.kind}"
+# The opt reference is cached under `tag`; swap_sweeps is deliberately not in the
+# name so that one reference serves a whole campaign, but that means two campaigns
+# with different --swap-sweeps must not share an --out directory.
 pts, E, L = make_domain(a.n_sinks, a.domain_seed, a.kind); net = Net(pts, E, L)
 t0 = time.time()
 
@@ -62,7 +65,8 @@ def emit(row, r=None, active=None):
     f = os.path.join(a.out, f"{a.exp}.tsv")
     pd.DataFrame([row]).to_csv(f, sep="\t", index=False, mode="a", header=not os.path.exists(f))
     if r is not None:
-        np.savez_compressed(os.path.join(a.out, f"{a.exp}_{tag}_s{a.seed}_sig{a.sigma}_K{a.stages}{a.growth_mode[0]}.npz"),
+        np.savez_compressed(os.path.join(a.out, f"{a.exp}_{tag}_s{a.seed}_sig{a.sigma}_K{a.stages}{a.growth_mode[0]}"
+                            f"{'' if a.reactivate else '_noreact'}.npz"),
                             r=r, active=active, edges=np.array(net.E))
     print(json.dumps({k: (float(f"{v:.6g}") if isinstance(v, float) else v) for k, v in row.items()}))
 
