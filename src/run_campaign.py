@@ -36,6 +36,8 @@ p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
 p.add_argument("--starts", type=int, default=8, help="random-start runs per (b, domain)")
 p.add_argument("--growth-stages", type=int, nargs="+", default=[3, 6, 12, 24])
 p.add_argument("--isotropic-stages", type=int, nargs="+", default=[6, 12])
+p.add_argument("--match-budget-control", action="store_true",
+               help="also run the fluctuating sweep with tau0 bisected to a common budget")
 p.add_argument("--no-reactivate-control", action="store_true",
                help="also run peripheral growth with reactivation disabled, the control that\n"
                     "separates domain growth from regrowth of pruned vessels")
@@ -91,6 +93,9 @@ for b, d in itertools.product(a.b, a.domain_seeds):
     if "fluct" not in a.skip:
         rest += [job("fluct", b, d, "--sigma", sg, "--max-steps", a.max_steps,
                      "--tol", a.fluct_tol, "--mc-samples", a.mc_samples) for sg in a.sigmas]
+        if a.match_budget_control:
+            rest += [job("fluct", b, d, "--sigma", sg, "--match-budget", "--max-steps", a.max_steps,
+                         "--tol", a.fluct_tol, "--mc-samples", a.mc_samples) for sg in a.sigmas]
     if "shear" not in a.skip:
         rest.append(job("shear", b, d))
 
