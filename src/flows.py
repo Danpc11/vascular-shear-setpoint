@@ -4,7 +4,12 @@ Conventions (units dropped): conductance w_e = r_e^4 / l_e; wall shear
 tau_e = |f_e| / r_e^3; cost  C = sum_e a_e w_e^alpha  with  alpha = b/2 and
 a_e = l_e^{3b/2}, so that C is proportional to sum_e (r_e^2 l_e)^b, the
 metabolic cost of the vessel mass with exponent b.  b = 1 is Murray's volume
-cost.  The rank-one loading (one source, unit sinks) makes the dissipation
+cost, 3/4 and 2/3 are the metabolic exponents of Kleiber and Rubner.  Lowering b
+flattens the cost in w: as b -> 0, a_e w_e^alpha -> 1 and the budget counts
+active channels instead of weighing them, so the problem tends to a Steiner-like
+one.  Exponents below 2/3 are not metabolic rates of any measured tissue; they
+are included to show that the trends are monotone in b and to approach that
+limit.  The rank-one loading (one source, unit sinks) makes the dissipation
 optimum a tree, on which the allocation is closed-form.
 """
 import numpy as np, networkx as nx
