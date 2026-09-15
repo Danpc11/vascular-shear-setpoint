@@ -14,7 +14,7 @@ df = pd.concat(frames, ignore_index=True)
 # the same configuration. Keep the most recent of each; `seconds` differs between
 # repeats but nothing else does, so this cannot hide a genuine disagreement.
 ident = [c for c in ["exp", "b", "n_sinks", "domain_seed", "kind", "seed", "sigma",
-                     "stages", "growth_mode", "mc_samples", "clip", "kappa", "reactivate", "match_budget"] if c in df]
+                     "stages", "growth_mode", "mc_samples", "clip", "kappa", "reactivate", "match_budget", "r_seed", "seed_frac"] if c in df]
 before = len(df)
 df = df.drop_duplicates(subset=ident, keep="last").reset_index(drop=True)
 if before != len(df):
