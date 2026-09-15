@@ -11,7 +11,7 @@
 Every row stores D_norm = D * C^{1/alpha}, which is budget-invariant, so runs
 can be compared afterwards with scripts/collect.py against the best tree found.
 """
-import argparse, os, sys, json, time, numpy as np, pandas as pd
+import argparse, os, re, sys, json, time, numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from domain import make_domain
 from flows import Net, shear_stats, tau0_from_tree, allocate_under_load
@@ -33,6 +33,10 @@ p.add_argument("--max-steps", type=int, default=20000)
 p.add_argument("--tol", type=float, default=1e-6)
 p.add_argument("--prune", type=float, default=1e-3)
 p.add_argument("--stages", type=int, default=6)
+p.add_argument("--r-seed", type=float, default=0.05,
+               help="radius given to the first shell's edges; the answer depends on it")
+p.add_argument("--seed-frac", type=float, default=0.5,
+               help="fraction of the current median radius given to newly admissible edges")
 p.add_argument("--growth-mode", default="peripheral", choices=["peripheral", "isotropic"])
 p.add_argument("--reactivate", dest="reactivate", action="store_true", default=True,
                help="growth may reseed edges pruned in an earlier shell (default)")
@@ -70,10 +74,19 @@ def emit(row, r=None, active=None):
     f = os.path.join(a.out, f"{a.exp}.tsv")
     pd.DataFrame([row]).to_csv(f, sep="\t", index=False, mode="a", header=not os.path.exists(f))
     if r is not None:
-        np.savez_compressed(os.path.join(a.out, f"{a.exp}_{tag}_s{a.seed}_sig{a.sigma}_K{a.stages}{a.growth_mode[0]}"
-                            f"{'' if a.reactivate else '_noreact'}"
-                            f"{'_mb' if a.match_budget else ''}.npz"),
-                            r=r, active=active, edges=np.array(net.E))
+        # The filename is built from every field that identifies a run, so adding a new
+        # control cannot silently make two runs share a file. That has happened three
+        # times: reactivate, match_budget and the seeding scale each had to be added by
+        # hand after the fact. Anything that changes the network must appear here.
+        ident = dict(exp=a.exp, b=f"{a.b:.4f}", n=a.n_sinks, d=a.domain_seed, kind=a.kind,
+                     s=a.seed, sig=a.sigma, K=a.stages, gm=a.growth_mode[:1],
+                     clip=a.clip, kap=a.kappa, rs=a.r_seed, sf=a.seed_frac,
+                     react=int(a.reactivate), mb=int(a.match_budget), mc=a.mc_samples)
+        stem = "_".join(f"{k}{v}" for k, v in ident.items())
+        stem = re.sub(r"[^A-Za-z0-9._-]", "", stem)
+        np.savez_compressed(os.path.join(a.out, stem + ".npz"),
+                            r=r, active=active, edges=np.array(net.E),
+                            **{f"p_{k}": str(v) for k, v in ident.items()})
     print(json.dumps({k: (float(f"{v:.6g}") if isinstance(v, float) else v) for k, v in row.items()}))
 
 if a.exp == "opt":
@@ -122,12 +135,13 @@ elif a.exp == "growth":
     ref = tau0_ref(); kw = dict(kappa=a.kappa, clip=a.clip, max_steps=a.max_steps,
                                 tol=a.tol, prune=a.prune)
     if a.growth_mode == "peripheral":
-        r, active, diag = grow_peripheral(net, a.b, ref["tau0"], a.stages, r_seed=0.05,
-                                          reactivate=a.reactivate, **kw)
+        r, active, diag = grow_peripheral(net, a.b, ref["tau0"], a.stages, r_seed=a.r_seed,
+                                          reactivate=a.reactivate, seed_frac=a.seed_frac, **kw)
     else:
-        r, active, diag = grow_isotropic(net, a.b, ref["tau0"], a.stages, r_seed=0.05, **kw)
+        r, active, diag = grow_isotropic(net, a.b, ref["tau0"], a.stages, r_seed=a.r_seed, **kw)
     S = summarize(net, r, active, a.b)
     S.update(stages=a.stages, growth_mode=a.growth_mode, reactivate=a.reactivate,
+             r_seed=a.r_seed, seed_frac=a.seed_frac,
              steps=int(sum(d["steps"] for d in diag)),
              final_err=max(d["final_err"] for d in diag),
              converged=bool(all(d["converged"] for d in diag)),
