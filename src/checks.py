@@ -159,16 +159,17 @@ def c8_budget_invariance(net, b, scale=3.7):
     return _ok("C8 D_norm budget-invariant", d2, d1, 1e-10, extra=dict(b=b, scale=scale))
 
 # ---------------------------------------------------------------- C9
-def c9_rest_points(net, b, kappa=0.2, max_steps=20000, tol=1e-6, seed=0):
+def c9_rest_points(net, b, kappa=0.2, clip=0.02, max_steps=20000, tol=1e-6, seed=0):
     """the optimal tree and the tree reached from a dense start are both rest points."""
     sol = reweighted_spt(net, b)
     t0 = float(np.median((sol["f"] / sol["r"] ** 3) /
                          (sol["r"] ** (b - 1) * sol["l"] ** ((b - 1) / 2))))
     r_dense = np.full(net.m, float(sol["r"].mean()))
-    r1, a1, s1, e1 = adapt(net, b, r_dense, t0, kappa=kappa, max_steps=max_steps, tol=tol, seed=seed)
+    r1, a1, s1, e1 = adapt(net, b, r_dense, t0, kappa=kappa, clip=clip,
+                           max_steps=max_steps, tol=tol, seed=seed)
     S1 = summarize(net, r1, a1, b)
     r_opt = sol["r_full"].copy()
-    _, a2, s2, e2 = adapt(net, b, r_opt, t0, kappa=kappa, max_steps=50, tol=tol)
+    _, a2, s2, e2 = adapt(net, b, r_opt, t0, kappa=kappa, clip=clip, max_steps=50, tol=tol)
     ratio = S1["D_norm"] / sol["D_norm"]
     shared = len({net.E[k] for k in np.flatnonzero(a1)} & set(sol["edges"]))
     # Which rest point has lower dissipation is not fixed: at the converged step
