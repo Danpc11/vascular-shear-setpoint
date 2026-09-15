@@ -38,6 +38,9 @@ p.add_argument("--kind", default="delaunay", choices=["delaunay", "knn"])
 p.add_argument("--starts", type=int, default=8, help="random-start runs per (b, domain)")
 p.add_argument("--growth-stages", type=int, nargs="+", default=[3, 6, 12, 24])
 p.add_argument("--isotropic-stages", type=int, nargs="+", default=[6, 12])
+p.add_argument("--seed-control", action="store_true",
+               help="also run peripheral growth at a second seeding scale, the control for the\n"
+                    "free seeding parameter of the growth protocol")
 p.add_argument("--match-budget-control", action="store_true",
                help="also run the fluctuating sweep with tau0 bisected to a common budget")
 p.add_argument("--no-reactivate-control", action="store_true",
@@ -88,6 +91,10 @@ for b, d in itertools.product(a.b, a.domain_seeds):
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.growth_stages]
         rest += [job("growth", b, d, "--stages", K, "--growth-mode", "isotropic",
                      "--max-steps", a.max_steps, "--tol", a.tol) for K in a.isotropic_stages]
+        if a.seed_control:
+            rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
+                         "--r-seed", 0.25, "--max-steps", a.max_steps, "--tol", a.tol)
+                     for K in a.growth_stages]
         if a.no_reactivate_control:
             rest += [job("growth", b, d, "--stages", K, "--growth-mode", "peripheral",
                          "--no-reactivate", "--max-steps", a.max_steps, "--tol", a.tol)
