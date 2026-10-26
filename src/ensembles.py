@@ -171,6 +171,30 @@ def cmd_summary(a):
             out[f'overlap_{mode}'] = dict(shared=o_sh, independent=o_in); print(f'  overlap {mode}: shared {o_sh:.3f} independent {o_in:.3f}')
     json.dump(out, open(a.json, 'w'), indent=1); print('written', a.json)
 
+def cmd_scaling(a):
+    """Replica-to-replica fluctuations of tree statistics against network size (independent substrates).
+    gamma is refitted on a fixed load range [2, 10] so that sizes are comparable."""
+    out = {}
+    for mode in ('dense', 'staged'):
+        for N in (200, 400, 800, 1600):
+            fn = f'{RES}/indep_{mode}_b0.75_N{N}_ind.pkl'
+            if not os.path.exists(fn): continue
+            r = list(pickle.load(open(fn, 'rb')).values()); g = []
+            for v in r:
+                kk = np.round(v['load']).astype(int); x = np.arange(2, 11); cc = np.array([np.mean(kk >= q) for q in x])
+                g.append(-np.polyfit(np.log(x), np.log(cc), 1)[0])
+            g = np.array(g); h = np.array([v['hack'] for v in r]); D = np.array([v['Dt'] for v in r])
+            out[f'{mode}_N{N}'] = dict(n=len(r), gamma=[float(g.mean()), float(g.std())], hack=[float(h.mean()), float(h.std())],
+                                      cv_gamma=float(g.std() / g.mean()), cv_hack=float(h.std() / h.mean()), cv_D=float(D.std() / D.mean()))
+            o = out[f'{mode}_N{N}']
+            print(f"{mode:6s} N={N:5d} n={len(r)} gamma[2,10]={g.mean():.3f}±{g.std():.3f} (CV {o['cv_gamma']:.3f}) hack={h.mean():.3f}±{h.std():.3f} (CV {o['cv_hack']:.3f}) CV(D)={o['cv_D']:.3f}")
+    for mode in ('dense', 'staged'):
+        Ns = [N for N in (200, 400, 800, 1600) if f'{mode}_N{N}' in out]
+        for q in ('cv_gamma', 'cv_hack', 'cv_D'):
+            y = [out[f'{mode}_N{N}'][q] for N in Ns]; sl = np.polyfit(np.log(Ns), np.log(y), 1)[0]
+            out[f'{mode}_{q}_slope'] = float(sl); print(f'{mode} {q}: log-log slope vs N = {sl:.2f} (self-averaging if < 0; -0.5 for independent fluctuations)')
+    json.dump(out, open(a.json, 'w'), indent=1)
+
 def main():
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest='cmd', required=True)
     for name in ('shared', 'fate', 'independent'):
@@ -182,9 +206,10 @@ def main():
         else:
             p.add_argument('--N', type=int, default=400); p.add_argument('--domain', type=int, default=3); p.add_argument('--reps', type=int, default=30)
             if name == 'shared': p.add_argument('--mode', choices=list(MODES), required=True)
+    sc = sub.add_parser('scaling'); sc.add_argument('--json', default=f'{RES}/scaling.json')
     s = sub.add_parser('summary'); s.add_argument('--json', default=f'{RES}/ensembles_summary.json')
     a = ap.parse_args(); os.makedirs(RES, exist_ok=True)
-    {'shared': cmd_shared, 'fate': cmd_fate, 'independent': cmd_independent, 'summary': cmd_summary}[a.cmd](a)
+    {'shared': cmd_shared, 'fate': cmd_fate, 'independent': cmd_independent, 'summary': cmd_summary, 'scaling': cmd_scaling}[a.cmd](a)
 
 if __name__ == '__main__':
     main()

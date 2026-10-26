@@ -19,7 +19,7 @@ Usage
   python src/retina_bilateral.py ceiling --eyes eyes.pkl --images ImagesWithContours
   python src/retina_bilateral.py trees   --eyes eyes.pkl --gap 0.15 --model-json model_window.json
 """
-import argparse, json, pickle, warnings
+import argparse, json, os, pickle, warnings
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.stats import spearmanr, wilcoxon
@@ -249,7 +249,9 @@ def cmd_ceiling(a):
     import retina_segment as RS
     from skimage import io, transform
     db, ok = load(a.eyes); rng = np.random.default_rng(0); vals = []
-    for k in [ok[j] + ('OD' if j % 2 == 0 else 'OS') for j in (0, 10, 40, 80, 120)]:
+    idx = np.linspace(0, len(ok) - 1, a.n).round().astype(int)
+    for n_, j in enumerate(idx):
+        k = ok[j] + ('OD' if n_ % 2 == 0 else 'OS')
         o = db[k]; im = io.imread(f'{a.images}/Opht_cont_RET{k}.jpg').astype(float)
         im2 = transform.rotate(im, 6, center=(o['cx'] / RS.S, o['cy'] / RS.S), preserve_range=True) * 0.9 + rng.normal(0, 6, im.shape)
         im2 = np.clip(im2, 0, 255) / 255; cy, cx, rd, cont = RS.disc_from_contours(im2)
@@ -259,16 +261,128 @@ def cmd_ceiling(a):
             Br = rot(B, ang); f1 = np.mean(cKDTree(Br).query(A)[0] < TOL); f2 = np.mean(cKDTree(A).query(Br)[0] < TOL); best = max(best, (f1 + f2) / 2)
         vals.append(best); print(f'{k}: {best:.3f}')
     print(f'ceiling (mean of {len(vals)} eyes): {np.mean(vals):.3f}')
+    if a.out: json.dump(dict(values=[float(v) for v in vals]), open(a.out, 'w'))
+
+# ----------------------------------------------------------------------------- sensitivity of identity overlap
+TOLS = (0.03, 0.06, 0.12)
+
+def cmd_sensitivity(a):
+    """Identity overlap for every person with both eyes (no quality exclusion), at three tolerances,
+    against an independent random draw of unrelated people (seeded by --seed). Quality thresholds are
+    applied afterwards by subsetting, and several seeds give independent control draws."""
+    import time
+    db = pickle.load(open(a.eyes, 'rb')); ids = sorted({k[:3] for k in db if k[:3] + 'OD' in db and k[:3] + 'OS' in db})
+    P = {k: pts(db[k], k.endswith('OS')) for k in db}; rng = np.random.default_rng(a.seed)
+    out = pickle.load(open(a.out, 'rb')) if os.path.exists(a.out) else dict(seed=a.seed, rows=[], done=set())
+    t = time.time()
+    for i in ids:
+        if i in out['done']: continue
+        if time.time() - t > a.budget: break
+        others = np.random.default_rng([a.seed, int(i)]).choice([j for j in ids if j != i], a.others, replace=False)
+        for j in [i] + list(others):
+            A, wA = P[i + 'OD']; B, wB = P[j + 'OS']; oA, oB = db[i + 'OD'], db[j + 'OS']
+            best = (-1, 0)
+            for ang in np.deg2rad(np.arange(-20, 21, 2)):
+                sc = score(A, wA, B, wB, oA, oB, ang, SELS['all'])
+                if sc == sc and sc > best[0]: best = (sc, ang)
+            res = {}
+            for tol in TOLS:
+                global TOL
+                keep = TOL; TOL = tol
+                res[tol] = tuple(score(A, wA, B, wB, oA, oB, best[1], SELS[c]) for c in ('all', 'thick', 'thin'))
+                TOL = keep
+            out['rows'].append((i, str(j), i == j, res))
+        out['done'].add(i); pickle.dump(out, open(a.out, 'wb'))
+    print(f'{a.out}: {len(out["done"])}/{len(ids)} people')
+
+# ----------------------------------------------------------------------------- robustness summary
+def cmd_robustness(a):
+    """Combine sensitivity runs, the re-imaging ceiling and network statistics into the robustness
+    analyses of the electronic supplementary material, and write a JSON."""
+    rng = np.random.default_rng(0); db = pickle.load(open(a.eyes, 'rb'))
+    runs = [pickle.load(open(f, 'rb')) for f in a.sens]; ceil = np.array(json.load(open(a.ceiling))['values'])
+    ids = sorted({k[:3] for k in db if k[:3] + 'OD' in db and k[:3] + 'OS' in db})
+    L = np.array([db[k]['m']['len'] for k in db]); med = np.median(L)
+    def passes(i, f): return f is None or (db[i + 'OD']['m']['len'] >= f * med and db[i + 'OS']['m']['len'] >= f * med)
+    def boot(v, B=4000): return np.percentile([rng.choice(v, len(v)).mean() for _ in range(B)], [2.5, 97.5])
+    out = {'ceiling': dict(n=len(ceil), mean=float(ceil.mean()), lo=float(boot(ceil)[0]), hi=float(boot(ceil)[1]),
+                           min=float(ceil.min()), max=float(ceil.max()))}
+    classes = ('all', 'large', 'thin')
+    def collect(runs_, tol, c, f):
+        own, oth = {}, {}
+        for r in runs_:
+            for i, j, same, res in r['rows']:
+                if not passes(i, f): continue
+                v = res[tol][c]
+                if v != v: continue
+                if same: own[i] = v
+                elif passes(j, f): oth.setdefault(i, []).append(v)
+        ii = [i for i in own if len(oth.get(i, [])) >= 3]
+        return ii, np.array([own[i] for i in ii]), [np.array(oth[i]) for i in ii]
+    tab = []
+    for f in (None, 0.3, 0.5, 0.7):
+        for tol in TOLS:
+            for c, cname in enumerate(classes):
+                for label, rr in [('pooled', runs)] + [(f'draw{k + 1}', [r]) for k, r in enumerate(runs)]:
+                    if label != 'pooled' and not (tol == 0.06 and f == 0.5): continue
+                    ii, own, oth = collect(rr, tol, c, f)
+                    d = own - np.array([o.mean() for o in oth]); lo, hi = boot(d)
+                    pct = np.array([(np.sum(o < v) + 0.5 * np.sum(o == v)) / len(o) for v, o in zip(own, oth)])
+                    plo, phi = boot(pct)
+                    tab.append(dict(qc=f, tol=tol, cls=cname, controls=label, n=len(ii), own=float(own.mean()),
+                                    others=float(np.mean([o.mean() for o in oth])), excess=float(d.mean()), lo=float(lo), hi=float(hi),
+                                    p=float(wilcoxon(d).pvalue), percentile=float(pct.mean()), plo=float(plo), phi=float(phi)))
+    out['identity'] = tab
+    # normalized identity with joint bootstrap over people and ceiling eyes (qc 0.5, tol 0.06, pooled controls)
+    norm = {}
+    for c, cname in enumerate(classes):
+        ii, own, oth = collect(runs, 0.06, c, 0.5); m = np.array([o.mean() for o in oth])
+        val = np.mean((own - m) / (ceil.mean() - m)); bs = []
+        for _ in range(4000):
+            k = rng.integers(0, len(own), len(own)); cm = rng.choice(ceil, len(ceil)).mean()
+            bs.append(np.mean((own[k] - m[k]) / (cm - m[k])))
+        norm[cname] = dict(mean=float(val), lo=float(np.percentile(bs, 2.5)), hi=float(np.percentile(bs, 97.5)))
+    out['normalized_identity'] = norm
+    # percentile scale for network statistics (qc 0.5, full adjustment)
+    ok = [i for i in ids if passes(i, 0.5)]
+    for e in ('OD', 'OS'):
+        for i in ok:
+            n, w3 = crossings(db[i + e]); db[i + e]['m']['n2.5'] = n; db[i + e]['m']['w3_2.5'] = w3
+    def cov(e): return [np.array([db[i + e][q] for i in ok], float) for q in ('contrast', 'qnoise')] + \
+                       [np.array([db[i + e].get(q, np.nan) for i in ok], float) for q in ('axial', 'age', 'rd')]
+    stats = {}
+    for k, name in (('branch', 'branch points per area'), ('len', 'vessel length per area'), ('wmean', 'mean calibre'),
+                    ('dens', 'vessel area fraction'), ('n2.5', 'vessels crossing 2.5 disc radii'), ('w3_2.5', 'Murray-type capacity')):
+        x = resid(np.log(np.array([db[i + 'OD']['m'][k] for i in ok], float) + 1e-6), cov('OD'))
+        y = resid(np.log(np.array([db[i + 'OS']['m'][k] for i in ok], float) + 1e-6), cov('OS'))
+        g = np.isfinite(x) & np.isfinite(y); x, y = x[g], y[g]
+        pct = np.array([np.mean(np.abs(x[j] - np.delete(y, j)) > abs(x[j] - y[j])) for j in range(len(x))])
+        lo, hi = boot(pct); stats[name] = dict(n=int(len(x)), percentile=float(pct.mean()), lo=float(lo), hi=float(hi), values=pct.tolist())
+    out['statistics_percentile'] = stats
+    for c, cname in enumerate(classes):
+        ii, own, oth = collect(runs, 0.06, c, 0.5)
+        pct = np.array([(np.sum(o < v) + 0.5 * np.sum(o == v)) / len(o) for v, o in zip(own, oth)])
+        lo, hi = boot(pct); out.setdefault('identity_percentile', {})[cname] = dict(n=len(ii), percentile=float(pct.mean()), lo=float(lo), hi=float(hi), values=pct.tolist())
+    json.dump(out, open(a.out, 'w'))
+    print('ceiling', {k: round(v, 3) for k, v in out['ceiling'].items()})
+    for r in tab:
+        if r['controls'] == 'pooled' or (r['cls'] == 'all'):
+            print(f"qc={r['qc']} tol={r['tol']} {r['cls']:5s} {r['controls']:6s} n={r['n']} own={r['own']:.3f} oth={r['others']:.3f} excess={r['excess']:+.4f} [{r['lo']:+.4f},{r['hi']:+.4f}] p={r['p']:.2g} pct={r['percentile']:.3f} [{r['plo']:.3f},{r['phi']:.3f}]")
+    print('normalized', norm)
+    print('identity percentile', {k: (round(v['percentile'], 3), round(v['lo'], 3), round(v['hi'], 3)) for k, v in out['identity_percentile'].items()})
+    print('statistics percentile', {k: (round(v['percentile'], 3), round(v['lo'], 3), round(v['hi'], 3)) for k, v in stats.items()})
 
 def main():
     ap = argparse.ArgumentParser(); sub = ap.add_subparsers(dest='cmd', required=True)
     o = sub.add_parser('overlap'); o.add_argument('--eyes', required=True); o.add_argument('--out', default='overlap.pkl'); o.add_argument('--others', type=int, default=10)
     m = sub.add_parser('metrics'); m.add_argument('--eyes', required=True)
     s_ = sub.add_parser('similarity'); s_.add_argument('--eyes', required=True); s_.add_argument('--overlap', required=True); s_.add_argument('--ceiling', type=float, default=0.85); s_.add_argument('--out', default='similarity.json')
-    c_ = sub.add_parser('ceiling'); c_.add_argument('--eyes', required=True); c_.add_argument('--images', required=True)
+    c_ = sub.add_parser('ceiling'); c_.add_argument('--eyes', required=True); c_.add_argument('--images', required=True); c_.add_argument('--n', type=int, default=5); c_.add_argument('--out', default=None)
+    v_ = sub.add_parser('sensitivity'); v_.add_argument('--eyes', required=True); v_.add_argument('--seed', type=int, default=1); v_.add_argument('--others', type=int, default=10); v_.add_argument('--budget', type=float, default=1e9); v_.add_argument('--out', required=True)
+    b_ = sub.add_parser('robustness'); b_.add_argument('--eyes', required=True); b_.add_argument('--sens', nargs='+', required=True); b_.add_argument('--ceiling', required=True); b_.add_argument('--out', required=True)
     t = sub.add_parser('trees'); t.add_argument('--eyes', required=True); t.add_argument('--gap', type=float, default=0.15); t.add_argument('--model-json')
     a = ap.parse_args()
-    {'overlap': cmd_overlap, 'metrics': cmd_metrics, 'similarity': cmd_similarity, 'ceiling': cmd_ceiling, 'trees': cmd_trees}[a.cmd](a)
+    {'overlap': cmd_overlap, 'metrics': cmd_metrics, 'similarity': cmd_similarity, 'ceiling': cmd_ceiling, 'sensitivity': cmd_sensitivity, 'robustness': cmd_robustness, 'trees': cmd_trees}[a.cmd](a)
 
 if __name__ == '__main__':
     main()

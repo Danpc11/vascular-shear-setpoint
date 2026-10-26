@@ -140,10 +140,11 @@ Reference results (163 healthy individuals, 137 pairs after quality control):
 
 | Quantity | Value |
 |---|---|
-| Identity overlap, same person vs other people | 0.222 vs 0.213, excess +0.010 [0.004, 0.015], p = 0.002 |
-| Same, large vessels | excess +0.014 [0.005, 0.022], p = 0.004 |
-| Same eye re-imaged after rotation and noise (ceiling, `ceiling`) | 0.75 (five eyes, range 0.41–0.90) |
-| Shared layout on the 0–1 scale (`similarity`) | 0.018 [0.007, 0.028] |
+| Identity overlap, same person vs 30 unrelated people | 0.222 vs 0.212, excess +0.010 [0.004, 0.015], p = 0.002 |
+| Same, large vessels | excess +0.017 [0.009, 0.025], p = 4 × 10⁻⁴ |
+| Same eye re-imaged after rotation and noise (`ceiling --n 20`) | 0.84 [0.77, 0.89] |
+| Shared layout, normalized to the ceiling (`robustness`) | 0.016 [0.007, 0.026] |
+| Self-recognition percentile, layout / branch points per area | 0.58 / 0.60 (0.5 = no individual signal) |
 | Branch points per area, left–right Spearman ρ, fully adjusted | +0.42, p = 2 × 10⁻⁷ |
 
 ## Mesenteric shear and pressure
@@ -170,6 +171,8 @@ for b in 1 0.75 0.5 0.25; do for d in 3 4 5; do python3 src/ensembles.py fate --
 for m in dense staged; do for b in 1 0.75 0.5; do python3 src/ensembles.py independent --mode $m --b $b --seeds 21-32; done
   python3 src/ensembles.py independent --mode $m --b 0.75 --seeds 21-26 --graph 21 --tag same; done
 python3 src/ensembles.py summary --json results/ensembles_summary.json
+for m in dense staged; do for N in 200 400 1600; do python3 src/ensembles.py independent --mode $m --b 0.75 --N $N --seeds 21-32; done; done
+python3 src/ensembles.py scaling --json results/scaling.json
 python3 src/replicas.py replicas --mode dense  --b 0.75 --N 800 --seeds 41-56 --out results/W_dense_b0.75.pkl
 python3 src/replicas.py replicas --mode staged --b 0.75 --N 800 --seeds 41-52 --out results/W_staged_b0.75.pkl
 python3 src/replicas.py window --trees results/W_dense_b0.75.pkl results/W_staged_b0.75.pkl --b 0.75 --N 800 --json results/model_window.json
@@ -179,11 +182,14 @@ python3 src/retina_segment.py --images data/ImagesWithContours --contours data/C
 python3 src/retina_bilateral.py overlap --eyes results/eyes.pkl --out results/overlap.pkl
 python3 src/retina_bilateral.py metrics --eyes results/eyes.pkl
 python3 src/retina_bilateral.py ceiling --eyes results/eyes.pkl --images data/ImagesWithContours
-python3 src/retina_bilateral.py similarity --eyes results/eyes.pkl --overlap results/overlap.pkl --ceiling 0.752 --out results/similarity.json
+for s in 11 12 13; do python3 src/retina_bilateral.py sensitivity --eyes results/eyes.pkl --seed $s --out results/sens_seed$s.pkl; done
+python3 src/retina_bilateral.py ceiling --eyes results/eyes.pkl --images data/ImagesWithContours --n 20 --out results/ceiling20.json
+python3 src/retina_bilateral.py robustness --eyes results/eyes.pkl --sens results/sens_seed1{1,2,3}.pkl \
+        --ceiling results/ceiling20.json --out results/robustness.json
 python3 src/retina_bilateral.py trees --eyes results/eyes.pkl --gap 0.15 --model-json results/model_window.json
 python3 src/mesentery_shear.py
 # figures (summary.tsv is electronic supplementary material, table S1)
-python3 src/figures_procb.py --summary-tsv results/summary.tsv --out results/figures
+python3 src/figures_procb.py --summary-tsv results/summary.tsv --out results/figures   # Figures 1–4 and S1–S3
 ```
 
 ## Verification suite

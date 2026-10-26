@@ -80,14 +80,27 @@ def figure2(out):
     cb = fig.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(0, 1)), ax=fig.axes, fraction=0.02, pad=0.01, location='right'); cb.set_label('survival probability', fontsize=7)
     d = [L_(f'shared_dense_b0.75_eta{e}_N400_d3.pkl') for e in ('0.01', '0.1', '0.3')]; D0 = np.mean(d[1]['D'])
     ax = fig.add_subplot(gs[1, 0]); eta = [1, 10, 30]
-    ax.plot(eta, [contingent(x['S']) for x in d], 'o-', color=CD, ms=3, lw=1, label='contingent fraction')
-    ax.plot(eta, [np.mean(x['D']) / D0 for x in d], 's--', color=CS, ms=3, lw=1, label='relative dissipation')
+    rng = np.random.default_rng(0)
+    def bci(S=None, D=None):
+        n = len(S) if S is not None else len(D); v = []
+        for _ in range(500):
+            k = rng.integers(0, n, n); v.append(contingent(np.array(S)[k]) if S is not None else np.mean(np.array(D)[k]) / D0)
+        return np.percentile(v, [2.5, 97.5])
+    for key, col, mk, lab in (('S', CD, 'o-', 'contingent fraction'), ('D', CS, 's--', 'relative dissipation')):
+        y = [contingent(x['S']) if key == 'S' else np.mean(x['D']) / D0 for x in d]
+        if key == 'S':
+            ax.plot(eta, y, mk, color=col, ms=3, lw=1, label=lab)
+        else:
+            ci = np.array([bci(D=x['D']) for x in d])
+            ax.errorbar(eta, y, [np.array(y) - ci[:, 0], ci[:, 1] - np.array(y)], fmt=mk, color=col, ms=3, lw=1, capsize=2, label=lab)
     ax.set_xscale('log'); ax.set_xticks(eta); ax.set_xticklabels(['1%', '10%', '30%']); ax.set_ylim(0, 1.15); ax.set_xlabel('initial noise')
     ax.legend(frameon=False, loc='lower right', fontsize=6, bbox_to_anchor=(1.08, 0.0)); tag(ax, 'b')
     ax = fig.add_subplot(gs[1, 1]); pr = [('dense', 'dense'), ('staged\nno regr.', 'staged_noregrow'), ('staged\n+ regr.', 'staged')]
     dd = [L_(f'shared_{m}_b0.75_eta0.1_N400_d3.pkl') for _, m in pr]; x = np.arange(3)
-    ax.bar(x - 0.18, [np.mean(q['D']) / D0 for q in dd], 0.36, color=CS, label='relative dissipation')
-    ax.bar(x + 0.18, [contingent(q['S']) for q in dd], 0.36, color=CD, label='contingent fraction')
+    yD = np.array([np.mean(q['D']) / D0 for q in dd]); cD = np.array([bci(D=q['D']) for q in dd])
+    yS = np.array([contingent(q['S']) for q in dd])
+    ax.bar(x - 0.18, yD, 0.36, color=CS, label='relative dissipation', yerr=[yD - cD[:, 0], cD[:, 1] - yD], capsize=2, error_kw=dict(lw=0.8))
+    ax.bar(x + 0.18, yS, 0.36, color=CD, label='contingent fraction')
     ax.set_xticks(x); ax.set_xticklabels([a for a, _ in pr], fontsize=6); ax.set_ylim(0, 1.15)
     ax.legend(frameon=False, fontsize=6, loc='upper left', bbox_to_anchor=(0, 1.18)); tag(ax, 'c')
     ax = fig.add_subplot(gs[1, 2:]); its = [0, 10, 25, 50, 100, 200]; fs = [L_(f'fate_b0.75_eta0.1_N400_d{dm}.pkl') for dm in (3, 4, 5)]
@@ -132,26 +145,42 @@ def figure4(out):
     for rr in (1, RB.R1, RB.R2): axA.add_patch(plt.Circle((0, 0), rr, fill=False, lw=0.5, color='0.6', ls='-' if rr == 1 else ':'))
     axA.set_aspect('equal'); axA.set_xlim(-3.7, 3.7); axA.set_ylim(-3.7, 3.7); axA.set_xlabel('disc radii'); axA.set_yticks([]); axA.spines['left'].set_visible(False)
     axA.legend(frameon=False, markerscale=20, fontsize=6, loc='upper left', bbox_to_anchor=(0.06, 1.17), ncol=2)
-    axB = fig.add_subplot(gs[0, 1]); rng = np.random.default_rng(1); names = ['identity, all', 'identity, large', 'identity, thin']
-    for j, n in enumerate(names):
-        v = np.array(sim[n]['values']); axB.scatter(j + rng.uniform(-0.18, 0.18, len(v)), v, s=3, color='0.55', lw=0)
-        axB.errorbar(j, sim[n]['mean'], [[sim[n]['mean'] - sim[n]['lo']], [sim[n]['hi'] - sim[n]['mean']]], fmt='o', color=CS, ms=4, capsize=3, zorder=3)
-    axB.axhline(0, color='k', lw=0.6); axB.axhline(1, color='k', lw=0.6, ls='--')
-    axB.text(2.55, 1.0, 'identical\nimage', ha='left', va='center', fontsize=6.5, clip_on=False); axB.text(2.55, 0.0, 'two unrelated\npeople', ha='left', va='center', fontsize=6.5, clip_on=False)
-    axB.set_xticks(range(3)); axB.set_xticklabels(['all', 'large', 'thin']); axB.set_xlim(-0.5, 2.5); axB.set_ylim(-0.3, 1.12)
-    axB.set_ylabel('vessel identity shared\nby the two eyes'); axB.set_title(f'each dot: one person (n = {len(sim[names[0]]["values"])})', fontsize=6.5)
+    rob = json.load(open(f'{R}/robustness.json')); runs = [L_(f'sens_seed{k}.pkl') for k in (11, 12, 13)]
+    L0 = np.array([db[k]['m']['len'] for k in db]); med = np.median(L0)
+    okset = set(ok); ceil = rob['ceiling']
+    axB = fig.add_subplot(gs[0, 1]); rng = np.random.default_rng(1)
+    for c, cname in enumerate(('all', 'large', 'thin')):
+        own, oth = {}, {}
+        for rr in runs:
+            for i, jj, same, res in rr['rows']:
+                if i not in okset: continue
+                v = res[0.06][c]
+                if v != v: continue
+                if same: own[i] = v
+                elif jj in okset: oth.setdefault(i, []).append(v)
+        ii = [i for i in own if len(oth.get(i, [])) >= 3]; o = np.array([own[i] for i in ii]); m = np.array([np.mean(oth[i]) for i in ii])
+        xs = c + np.array([-0.17, 0.17])
+        for a_, b_ in zip(m, o): axB.plot(xs, [a_, b_], color='0.85', lw=0.3)
+        axB.boxplot([m, o], positions=xs, widths=0.25, showfliers=False, medianprops=dict(color='k'), patch_artist=True, boxprops=dict(facecolor='white'))
+        axB.text(c, 0.47, f'+{np.mean(o - m):.3f}', ha='center', fontsize=6.5)
+    axB.axhspan(ceil['lo'], ceil['hi'], color='0.9', zorder=0); axB.axhline(ceil['mean'], color='0.4', ls='--', lw=0.8)
+    axB.text(2.45, ceil['mean'] + 0.015, 'same eye re-imaged (20 eyes)', ha='right', fontsize=6, color='0.3')
+    axB.text(-0.45, 0.53, 'mean excess:', fontsize=6)
+    axB.set_xticks(range(3)); axB.set_xticklabels(['all', 'large', 'thin']); axB.set_xlim(-0.5, 2.5); axB.set_ylim(0, 1.0)
+    axB.set_ylabel('vessel layout overlap'); axB.set_title(f'other people (left box) vs own other eye (right box); n = {len(ok)}', fontsize=6.3)
     axC = fig.add_subplot(gs[1, :])
-    stats = ['branch points per area', 'vessel length per area', 'mean calibre', 'vessel area fraction', 'vessels crossing 2.5 disc radii', 'Murray-type capacity']
-    labels = ['vessel identity, all', 'vessel identity, large', 'vessel identity, thin'] + stats
-    ys = np.arange(len(labels))[::-1].astype(float); ys[:3] += 0.6
-    for y, n, lab in zip(ys, names + stats, labels):
-        s = sim[n]; col = CS if n.startswith('identity') else CD
-        axC.plot([s['lo'], s['hi']], [y, y], color=col, lw=1.2); axC.plot(s['mean'], y, 'o', ms=4.5, color=col, mfc=col if s['lo'] > 0 else 'white')
-    axC.axvline(0, color='k', lw=0.6); axC.axvline(1, color='k', lw=0.6, ls='--')
-    axC.set_yticks(ys); axC.set_yticklabels(labels, fontsize=7); axC.set_xlim(-0.15, 1.0); axC.set_ylim(ys[-1] - 0.7, ys[0] + 1.0)
-    axC.set_xlabel('similarity of the two eyes\n(0 = two unrelated people, 1 = identical)')
-    axC.text(0.98, ys[1], 'vessel layout:\nalmost entirely contingent', ha='right', va='center', fontsize=7, color=CS, fontweight='bold')
-    axC.text(0.98, ys[5], 'network statistics:\nlargely individual-specific', ha='right', va='center', fontsize=7, color=CD, fontweight='bold')
+    idp = rob['identity_percentile']; stp = rob['statistics_percentile']
+    stats = ['branch points per area', 'vessel length per area', 'mean calibre', 'vessels crossing 2.5 disc radii', 'vessel area fraction', 'Murray-type capacity']
+    items = [('vessel layout, all', idp['all']), ('vessel layout, large', idp['large']), ('vessel layout, thin', idp['thin'])] + [(n, stp[n]) for n in stats]
+    ys = np.arange(len(items))[::-1].astype(float); ys[:3] += 0.6
+    for y, (lab, s_) in zip(ys, items):
+        col = CS if lab.startswith('vessel layout') else CD
+        axC.plot([s_['lo'], s_['hi']], [y, y], color=col, lw=1.2); axC.plot(s_['percentile'], y, 'o', ms=4.5, color=col, mfc=col if s_['lo'] > 0.5 else 'white')
+    axC.axvline(0.5, color='k', lw=0.6); axC.axvline(1, color='k', lw=0.6, ls='--')
+    axC.set_yticks(ys); axC.set_yticklabels([lab for lab, _ in items], fontsize=7); axC.set_xlim(0.4, 1.0); axC.set_ylim(ys[-1] - 0.7, ys[0] + 1.0)
+    axC.set_xlabel("probability that a person's other eye is more similar than an unrelated eye\n(0.5 = no individual signal, 1 = always recognized)")
+    axC.text(0.99, ys[1], 'vessel layout', ha='right', va='center', fontsize=7, color=CS, fontweight='bold')
+    axC.text(0.99, ys[6], 'network statistics\n(adjusted)', ha='right', va='center', fontsize=7, color=CD, fontweight='bold')
     fig.canvas.draw(); r = fig.canvas.get_renderer(); inv = fig.transFigure.inverted()
     left = inv.transform(axC.get_tightbbox(r))[0, 0]; right = axC.get_position().x1; pa, pb = axA.get_position(), axB.get_position()
     wa = pa.height * fig.get_figheight() / fig.get_figwidth(); axA.set_position([left, pa.y0, wa, pa.height])
@@ -160,10 +189,68 @@ def figure4(out):
     fig.text(left, pa.y1 + 0.035, 'a', fontsize=10, fontweight='bold'); fig.text(bl, pa.y1 + 0.035, 'b', fontsize=10, fontweight='bold'); fig.text(left, pc.y1 + 0.02, 'c', fontsize=10, fontweight='bold')
     save(fig, out, 'Figure4'); return pick
 
+def figure_s1(out):
+    rob = json.load(open(f'{R}/robustness.json')); T = rob['identity']
+    fig, axs = plt.subplots(1, 4, figsize=(7.2, 2.4), gridspec_kw=dict(wspace=0.5, width_ratios=[1, 1, 1, 0.6]))
+    cols = {'all': 'k', 'large': CS, 'thin': CD}; qcs = [None, 0.3, 0.5, 0.7]; ql = ['none', '0.3', '0.5', '0.7']
+    for k, tol in enumerate((0.03, 0.06, 0.12)):
+        ax = axs[k]
+        for cls, col in cols.items():
+            rows = [next(t for t in T if t['qc'] == q and t['tol'] == tol and t['cls'] == cls and t['controls'] == 'pooled') for q in qcs]
+            x = np.arange(4) + {'all': -0.12, 'large': 0, 'thin': 0.12}[cls]
+            ax.errorbar(x, [r['excess'] for r in rows], [[r['excess'] - r['lo'] for r in rows], [r['hi'] - r['excess'] for r in rows]], fmt='o', color=col, ms=3, capsize=2, lw=0.8, label=cls)
+        ax.axhline(0, color='0.5', lw=0.6); ax.set_xticks(range(4)); ax.set_xticklabels(ql); ax.set_xlabel('quality threshold')
+        ax.set_title(f'tolerance {tol} disc radii', fontsize=7); ax.set_ylim(-0.01, 0.04)
+        if k == 0: ax.set_ylabel('excess overlap, own eye − unrelated'); ax.legend(frameon=False, fontsize=6); tag(ax, 'a')
+    d = [next(t for t in T if t['qc'] == 0.5 and t['tol'] == 0.06 and t['cls'] == 'all' and t['controls'] == f'draw{k}') for k in (1, 2, 3)]
+    ins = axs[3]
+    ins.errorbar([1, 2, 3], [x['excess'] for x in d], [[x['excess'] - x['lo'] for x in d], [x['hi'] - x['excess'] for x in d]], fmt='s', color='k', ms=3, capsize=2, lw=0.8)
+    ins.axhline(0, color='0.5', lw=0.6); ins.set_xticks([1, 2, 3]); ins.set_xlim(0.5, 3.5); ins.set_ylim(-0.01, 0.04); ins.set_xlabel('control draw')
+    ins.set_title('control draws', fontsize=7); tag(ins, 'b')
+    save(fig, out, 'FigureS1')
+
+def figure_s2(out):
+    rob = json.load(open(f'{R}/robustness.json')); c = json.load(open(f'{R}/ceiling20.json'))['values']
+    fig, axs = plt.subplots(1, 2, figsize=(5.2, 2.3), gridspec_kw=dict(wspace=0.45))
+    ax = axs[0]; ax.hist(c, bins=np.linspace(0, 1, 21), color='0.6'); ax.axvline(np.mean(c), color='k', ls='--', lw=0.8)
+    ax.set_xlabel('overlap of re-imaged eye with original'); ax.set_ylabel('eyes'); ax.set_title(f"ceiling {rob['ceiling']['mean']:.2f} [{rob['ceiling']['lo']:.2f}, {rob['ceiling']['hi']:.2f}]", fontsize=7); tag(ax, 'a')
+    ax = axs[1]; nm = rob['normalized_identity']
+    for k, cls in enumerate(('all', 'large', 'thin')):
+        v = nm[cls]; ax.errorbar(k, v['mean'], [[v['mean'] - v['lo']], [v['hi'] - v['mean']]], fmt='o', color=CS, capsize=3, ms=4)
+    ax.axhline(0, color='0.5', lw=0.6); ax.set_xticks(range(3)); ax.set_xticklabels(['all', 'large', 'thin']); ax.set_ylim(-0.01, 0.06)
+    ax.set_ylabel('shared layout (0 = unrelated,\n1 = same eye re-imaged)'); tag(ax, 'b')
+    save(fig, out, 'FigureS2')
+
+def figure_s3(out):
+    sc = json.load(open(f'{R}/scaling.json')); Ns = [200, 400, 800, 1600]
+    fig, axs = plt.subplots(1, 3, figsize=(7.0, 2.4), gridspec_kw=dict(wspace=0.45))
+    for mode, col, mk in (('dense', CD, 'o'), ('staged', CS, 's')):
+        g = []; 
+        for N in Ns:
+            r = list(L_(f'indep_{mode}_b0.75_N{N}_ind.pkl').values()); vals = []
+            for v in r:
+                kk = np.round(v['load']).astype(int); x = np.arange(2, N // 20 + 1); cc = np.array([np.mean(kk >= q) for q in x])
+                vals.append(-np.polyfit(np.log(x), np.log(cc), 1)[0])
+            g.append((np.mean(vals), np.std(vals)))
+        g = np.array(g); h = np.array([sc[f'{mode}_N{N}']['hack'] for N in Ns])
+        axs[0].errorbar(Ns, g[:, 0], g[:, 1], fmt=mk + '-', color=col, ms=3, capsize=2, lw=1, label=mode)
+        axs[1].errorbar(Ns, h[:, 0], h[:, 1], fmt=mk + '-', color=col, ms=3, capsize=2, lw=1, label=mode)
+        axs[2].loglog(Ns, [sc[f'{mode}_N{N}']['cv_hack'] for N in Ns], mk + '-', color=col, ms=3, lw=1, label=f'Hack, {mode}')
+        axs[2].loglog(Ns, [sc[f'{mode}_N{N}']['cv_D'] for N in Ns], mk + '--', color=col, ms=3, lw=1, mfc='white', label=f'D̃, {mode}')
+    for ax in axs:
+        ax.set_xscale('log'); ax.set_xticks(Ns); ax.set_xticklabels([str(n) for n in Ns]); ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+    for ax in axs[:2]: ax.set_xlabel('network size N')
+    axs[0].set_ylabel('γ (loads 2 to N/20)'); axs[0].legend(frameon=False, fontsize=6); tag(axs[0], 'a')
+    axs[1].set_ylabel('Hack exponent h'); tag(axs[1], 'b')
+    axs[2].set_xlabel('network size N'); axs[2].set_ylabel('coefficient of variation'); axs[2].legend(frameon=False, fontsize=5.5); tag(axs[2], 'c')
+    axs[2].plot(Ns, 0.06 * (np.array(Ns) / 200) ** -0.5, ':', color='0.5', lw=0.8)
+    save(fig, out, 'FigureS3')
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(); ap.add_argument('--summary-tsv', required=True); ap.add_argument('--out', default=f'{R}/figures')
-    ap.add_argument('--only', default='1234'); a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
+    ap.add_argument('--only', default='1234S'); a = ap.parse_args(); os.makedirs(a.out, exist_ok=True)
     if '1' in a.only: print('Figure 1: dense/staged example D ratio %.2f, %d differing edges' % figure1(a.out, a.summary_tsv))
     if '2' in a.only: figure2(a.out); print('Figure 2 done')
     if '3' in a.only: figure3(a.out); print('Figure 3 done')
     if '4' in a.only: print('Figure 4: example individual', figure4(a.out))
+    if 'S' in a.only: figure_s1(a.out); figure_s2(a.out); figure_s3(a.out); print('Supplementary figures done')
