@@ -1,4 +1,4 @@
-"""Controls, robustness tests and verifications for every claim in the Letter.
+"""Controls, robustness tests and verifications for every claim in the manuscript.
 
 Each function returns a dict with the measured quantity, the value the theory
 requires, and a pass/fail at a stated tolerance, so a run of run_checks.py is a

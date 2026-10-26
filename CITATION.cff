@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "vascular-shear-setpoint: adaptive vascular networks, replica ensembles and bilateral retinal analysis"
+version: 1.1.0
+date-released: 2026-10-26
+license: MIT
+repository-code: "https://github.com/Danpc11/vascular-shear-setpoint"
+authors:
+  - family-names: "Vázquez-Victorio"
+    given-names: "Genaro"
+    affiliation: "Facultad de Ciencias, Universidad Nacional Autónoma de México"
+  - family-names: "Hernández-Lemus"
+    given-names: "Enrique"
+    affiliation: "Instituto Nacional de Medicina Genómica"
+  - family-names: "Cervera"
+    given-names: "Alejandra"
+    affiliation: "Instituto Nacional de Medicina Genómica"
+  - family-names: "Gómez-Romero"
+    given-names: "Laura"
+    affiliation: "Instituto Nacional de Medicina Genómica"
+  - family-names: "Tovar"
+    given-names: "Hugo"
+    affiliation: "Instituto Nacional de Medicina Genómica; Facultad de Ciencias, Universidad Nacional Autónoma de México"
+  - family-names: "Perez-Calixto"
+    given-names: "Daniel"
+    affiliation: "Instituto Nacional de Medicina Genómica; Facultad de Ciencias, Universidad Nacional Autónoma de México"
+keywords:
+  - vascular remodeling
+  - wall shear stress
+  - adaptive transport networks
+  - optimal networks
+  - retina
+preferred-citation:
+  type: article
+  title: "Contingent identity and conserved statistics in adaptively optimized vascular networks"
+  authors:
+    - family-names: "Vázquez-Victorio"
+      given-names: "Genaro"
+    - family-names: "Hernández-Lemus"
+      given-names: "Enrique"
+    - family-names: "Cervera"
+      given-names: "Alejandra"
+    - family-names: "Gómez-Romero"
+      given-names: "Laura"
+    - family-names: "Tovar"
+      given-names: "Hugo"
+    - family-names: "Perez-Calixto"
+      given-names: "Daniel"
+  year: 2026
+  notes: "Manuscript in preparation."

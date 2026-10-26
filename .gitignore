@@ -3,4 +3,7 @@ results/*
 __pycache__/
 *.pyc
 *.npz
+*.pkl
 .venv/
+data/
+network.dat
